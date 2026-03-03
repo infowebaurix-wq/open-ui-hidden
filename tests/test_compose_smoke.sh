@@ -72,6 +72,11 @@ wait_health() {
       echo "[smoke] ${container}: ${status}"
       return 0
     fi
+    if [[ "$status" == "unhealthy" || "$status" == "exited" || "$status" == "dead" ]]; then
+      echo "[smoke] ${container} entered terminal state: ${status}" >&2
+      docker ps -a --filter "name=$container" || true
+      return 1
+    fi
     sleep 3
     elapsed=$((elapsed + 3))
   done
@@ -82,7 +87,8 @@ wait_health() {
 }
 
 echo "[smoke] waiting for services to become healthy"
-wait_health tor-hs-alpine 180
+# Tor can stay "starting" for several minutes in cold CI runners.
+wait_health tor-hs-alpine 420
 wait_health ollama-proxy 120
 wait_health open-webui 180
 wait_health pq-nginx-proxy-kyber768 180
