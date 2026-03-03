@@ -49,6 +49,16 @@ assert_not_contains \
   'ssl_ecdh_curve[[:space:]].*:X25519;' \
   "nginx.conf must not allow classical X25519 fallback"
 
+echo "[static] checking tor package install is CI-safe"
+assert_not_contains \
+  "$ROOT_DIR/docker/tor/Dockerfile" \
+  'apk add --no-cache[[:space:]]+tor=' \
+  "docker/tor/Dockerfile must not pin exact tor apk revision"
+assert_contains \
+  "$ROOT_DIR/docker/tor/Dockerfile" \
+  'apk add --no-cache[[:space:]]+tor([[:space:]]|$)' \
+  "docker/tor/Dockerfile must install tor package"
+
 echo "[static] checking compose file parses cleanly"
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
   docker compose -f "$ROOT_DIR/docker-compose.yml" config >/dev/null

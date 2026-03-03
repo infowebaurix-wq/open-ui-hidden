@@ -1,8 +1,8 @@
 FROM alpine@sha256:a8560b36e8b8210634f77d9f7f9efd7ffa463e380b75e2e74aff4511df3ef88c
 
-ARG TOR_VERSION=0.4.8.16-r0
-# Install Tor and remove bash
-RUN apk add --no-cache tor=${TOR_VERSION}
+# Install Tor from the base image repository. Exact pkg revisions can disappear
+# from Alpine indexes and break CI builds unexpectedly.
+RUN apk add --no-cache tor
 
 # Create a non-root user for Tor
 RUN addgroup -S toruser && adduser -S -G toruser -h /var/lib/tor toruser
