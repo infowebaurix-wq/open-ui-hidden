@@ -138,6 +138,7 @@ chmod +x run.sh
 This script will:
 1. Check for Docker.
 2. Set up `WEBUI_SECRET_KEY`, `WEBUI_UID`, and `WEBUI_GID` in a `.env` file (generating missing values if needed).
+   - It also sets `TOR_UID` and `TOR_GID` to your host UID/GID for Linux bind-mount compatibility.
    - If an older `.env` uses `OLLAMA_BASE_URL=http://host.docker.internal:11434`, the script migrates it to `http://ollama-proxy:11434`.
 3. Generate ECDSA P-256 self-signed certificates into `./data/pq_proxy_certs/` if not already present (these are used by Nginx/BoringSSL for the TLS handshake; key exchange is strict PQ-only: `X25519MLKEM768`, then `X25519Kyber768Draft00`).
 4. Build images as needed and start the Docker Compose services.
@@ -247,6 +248,8 @@ The repository includes a release workflow (`.github/workflows/release.yml`) tri
     OLLAMA_BASE_URL=http://ollama-proxy:11434
     WEBUI_UID=$(id -u)
     WEBUI_GID=$(id -g)
+    TOR_UID=$(id -u)
+    TOR_GID=$(id -g)
     EOF
     ```
 
