@@ -72,4 +72,10 @@ else
   echo "[static] docker compose not available, skipping compose parse check"
 fi
 
+echo "[static] checking Linux host gateway mapping for ollama-proxy"
+assert_contains \
+  "$ROOT_DIR/docker-compose.yml" \
+  'host\.docker\.internal:host-gateway' \
+  "docker-compose.yml must map host.docker.internal to host-gateway for Linux CI"
+
 echo "[static] all checks passed"
