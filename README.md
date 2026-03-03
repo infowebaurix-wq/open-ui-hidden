@@ -122,6 +122,12 @@ If you need to integrate proprietary LLM endpoints while preserving privacy and 
 - `pq-proxy` is configured to allow `X25519MLKEM768` first, then `X25519Kyber768Draft00` only.
 - Result: service is strict PQ-only at TLS layer; clients lacking those groups will fail the TLS handshake.
 
+| Client | Engine Base | Expected with this repo | Notes |
+| :--- | :--- | :--- | :--- |
+| Tor Browser `15.0.7` | Firefox `140.8.0esr` | Should connect | Primary target client for this stack. |
+| Recent Firefox desktop builds | Firefox TLS stack | Depends on negotiated group support | Validate manually if using non-Tor Firefox builds. |
+| Onion Browser (iOS) | WebKit / Safari TLS stack | Depends on iOS TLS group support | If PQ groups are unavailable, connection is rejected by design. |
+
 ### Quick Start
 
 This project includes a `run.sh` script to automate setup. Simply run:
@@ -176,7 +182,12 @@ docker compose exec pq-proxy nginx -t
 
 # 4) WebUI should expose the expected local model endpoint
 docker compose exec webui sh -lc 'echo "$OLLAMA_BASE_URL"'
+
+# 5) Classical X25519 must be rejected (strict PQ-only policy)
+docker compose exec webui sh -lc 'openssl s_client -connect pq-proxy:443 -servername pq-proxy -tls1_3 -groups X25519 -brief < /dev/null'
 ```
+
+For check `#5`, you should see a TLS handshake failure (`alert handshake failure` or equivalent). That failure is expected and confirms there is no classical fallback path.
 
 ### CI and Tests
 
@@ -198,6 +209,19 @@ You can run the same checks locally:
 make test-static
 make test-docker-smoke
 ```
+
+### Release Process
+
+The repository includes a release workflow (`.github/workflows/release.yml`) triggered on tags matching `v*`.
+
+1. Update `CHANGELOG.md` (`[Unreleased]` + target version section).
+2. Commit and push changes to `main`.
+3. Create and push a semantic version tag (for example `v0.1.1`):
+   ```bash
+   git tag -a v0.1.1 -m "v0.1.1"
+   git push origin v0.1.1
+   ```
+4. GitHub Actions will publish a Release using notes extracted from the matching `CHANGELOG.md` section.
 
 ### Known Limitations
 
