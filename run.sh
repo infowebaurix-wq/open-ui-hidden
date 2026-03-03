@@ -170,6 +170,90 @@ ensure_data_dirs() {
   mkdir -p "$CERT_DIR" "$TOR_HS_DIR" "$OPENWEBUI_DATA_DIR"
 }
 
+ensure_cert_helper_image() {
+  if ! docker image inspect "$CERT_TOOL_IMAGE_TAG" >/dev/null 2>&1; then
+    log_info "Pulling ${CERT_TOOL_IMAGE_TAG} helper image..."
+    docker pull "$CERT_TOOL_IMAGE_TAG" >/dev/null
+  fi
+}
+
+generate_tls_cert() {
+  local cert_cn="$1"
+  local cert_san="$2"
+
+  ensure_cert_helper_image
+
+  docker run --rm \
+    -e CERT_CN="$cert_cn" \
+    -e CERT_SAN="$cert_san" \
+    -v "${SCRIPT_DIR}/data/pq_proxy_certs:/certs" \
+    "$CERT_TOOL_IMAGE_DIGEST" \
+    sh -ceu 'apk add --no-cache openssl >/dev/null && \
+             openssl req -x509 \
+               -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+               -keyout /certs/key.pem \
+               -out /certs/cert.pem \
+               -nodes -days 3650 \
+               -subj "/CN=${CERT_CN}" \
+               -addext "subjectAltName=DNS:${CERT_SAN}"'
+}
+
+read_cert_subject() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl x509 -in "$CERT_PEM_FILE" -noout -subject -nameopt RFC2253
+  else
+    ensure_cert_helper_image
+    docker run --rm -v "${SCRIPT_DIR}/data/pq_proxy_certs:/certs:ro" \
+      "$CERT_TOOL_IMAGE_DIGEST" \
+      sh -ceu 'apk add --no-cache openssl >/dev/null && \
+               openssl x509 -in /certs/cert.pem -noout -subject -nameopt RFC2253'
+  fi
+}
+
+read_cert_san() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl x509 -in "$CERT_PEM_FILE" -noout -ext subjectAltName
+  else
+    ensure_cert_helper_image
+    docker run --rm -v "${SCRIPT_DIR}/data/pq_proxy_certs:/certs:ro" \
+      "$CERT_TOOL_IMAGE_DIGEST" \
+      sh -ceu 'apk add --no-cache openssl >/dev/null && \
+               openssl x509 -in /certs/cert.pem -noout -ext subjectAltName'
+  fi
+}
+
+cert_matches_onion() {
+  local onion="$1"
+  local subject_line
+  local san_block
+
+  [[ -s "$CERT_KEY_FILE" && -s "$CERT_PEM_FILE" ]] || return 1
+
+  subject_line="$(read_cert_subject 2>/dev/null || true)"
+  san_block="$(read_cert_san 2>/dev/null || true)"
+
+  grep -Fq "CN=${onion}" <<<"$subject_line" &&
+    grep -Fq "DNS:${onion}" <<<"$san_block"
+}
+
+sync_cert_with_onion() {
+  local onion="$1"
+
+  if cert_matches_onion "$onion"; then
+    log_success "TLS certificate already matches onion hostname (${onion})."
+    return 0
+  fi
+
+  log_info "Updating TLS certificate to CN/SAN=${onion}..."
+  generate_tls_cert "$onion" "$onion"
+  [[ -s "$CERT_KEY_FILE" && -s "$CERT_PEM_FILE" ]] || die "Certificate regeneration failed."
+  chmod 644 "$CERT_KEY_FILE" "$CERT_PEM_FILE"
+  log_success "TLS certificate updated to CN/SAN=${onion}."
+
+  log_info "Restarting pq-proxy to load updated certificate..."
+  compose restart pq-proxy >/dev/null
+}
+
 ensure_env_file() {
   local host_uid
   local host_gid
@@ -212,21 +296,8 @@ ensure_certs() {
   if [[ -s "$CERT_KEY_FILE" && -s "$CERT_PEM_FILE" ]]; then
     log_success "TLS certificates already exist in ${CERT_DIR}."
   else
-    log_info "Generating ECDSA P-256 self-signed certificates..."
-    if ! docker image inspect "$CERT_TOOL_IMAGE_TAG" >/dev/null 2>&1; then
-      log_info "Pulling ${CERT_TOOL_IMAGE_TAG} helper image..."
-      docker pull "$CERT_TOOL_IMAGE_TAG" >/dev/null
-    fi
-
-    docker run --rm -v "${SCRIPT_DIR}/data/pq_proxy_certs:/certs" \
-      "$CERT_TOOL_IMAGE_DIGEST" \
-      sh -c "apk add --no-cache openssl >/dev/null && \
-             openssl req -x509 \
-               -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
-               -keyout /certs/key.pem \
-               -out /certs/cert.pem \
-               -nodes -days 3650 \
-               -subj '/CN=my-boringssl-onion-service'"
+    log_info "Generating bootstrap ECDSA P-256 self-signed certificate..."
+    generate_tls_cert "my-boringssl-onion-service" "my-boringssl-onion-service"
 
     [[ -s "$CERT_KEY_FILE" && -s "$CERT_PEM_FILE" ]] || die "Certificate generation failed."
     log_success "TLS certificates generated in ${CERT_DIR}."
@@ -255,18 +326,22 @@ wait_for_onion_hostname() {
 }
 
 show_access_hint() {
-  local onion
+  local onion="${1:-}"
 
-  if onion="$(wait_for_onion_hostname 90)"; then
-    log_success "Tor hidden service: https://${onion}"
+  if [[ -z "$onion" ]]; then
+    if onion="$(wait_for_onion_hostname 90)"; then
+      log_success "Tor hidden service: https://${onion}"
+    else
+      log_info "Tor hostname not ready yet. Check later with: ./run.sh onion --wait"
+    fi
   else
-    log_info "Tor hostname not ready yet. Check later with: ./run.sh onion --wait"
+    log_success "Tor hidden service: https://${onion}"
   fi
 
   printf "\n"
   log_info "Access notes:"
   printf "%s\n" "  - Open the onion URL in Tor Browser."
-  printf "%s\n" "  - Self-signed cert warning is expected in this setup."
+  printf "%s\n" "  - Self-signed cert warning is expected in this setup (CN/SAN now follows your onion hostname)."
   printf "%s\n" "  - Strict PQ-only TLS policy is enforced at pq-proxy."
 }
 
@@ -296,6 +371,7 @@ cmd_init() {
 
 cmd_up() {
   local build=true
+  local onion
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -321,8 +397,15 @@ cmd_up() {
     compose up -d
   fi
 
+  onion="$(wait_for_onion_hostname 120 || true)"
+  if [[ -n "$onion" ]]; then
+    sync_cert_with_onion "$onion"
+  else
+    log_info "Tor hostname not available yet; certificate CN/SAN sync will happen on next './run.sh up'."
+  fi
+
   log_success "Stack started successfully."
-  show_access_hint
+  show_access_hint "$onion"
 }
 
 cmd_down() {
@@ -415,6 +498,7 @@ cmd_reset() {
 cmd_fresh() {
   local force=false
   local build=true
+  local onion
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -452,8 +536,15 @@ cmd_fresh() {
     compose up -d
   fi
 
+  onion="$(wait_for_onion_hostname 120 || true)"
+  if [[ -n "$onion" ]]; then
+    sync_cert_with_onion "$onion"
+  else
+    log_info "Tor hostname not available yet; certificate CN/SAN sync will happen on next './run.sh up'."
+  fi
+
   log_success "Fresh instance started successfully."
-  show_access_hint
+  show_access_hint "$onion"
 }
 
 main() {

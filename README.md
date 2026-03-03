@@ -142,7 +142,9 @@ The commands above will:
 2. Set up `WEBUI_SECRET_KEY`, `WEBUI_UID`, and `WEBUI_GID` in a `.env` file (generating missing values if needed).
    - It also sets `TOR_UID` and `TOR_GID` to your host UID/GID for Linux bind-mount compatibility.
    - If an older `.env` uses `OLLAMA_BASE_URL=http://host.docker.internal:11434`, the CLI migrates it to `http://ollama-proxy:11434`.
-3. Generate ECDSA P-256 self-signed certificates into `./data/pq_proxy_certs/` if not already present (these are used by Nginx/BoringSSL for the TLS handshake; key exchange is strict PQ-only: `X25519MLKEM768`, then `X25519Kyber768Draft00`).
+3. Generate bootstrap ECDSA P-256 self-signed certificates into `./data/pq_proxy_certs/` if not already present.
+   - After Tor publishes the hostname, `./run.sh up` automatically rotates the cert to `CN=<your-onion>` and `SAN=DNS:<your-onion>`.
+   - TLS key exchange remains strict PQ-only: `X25519MLKEM768`, then `X25519Kyber768Draft00`.
 4. Build images as needed and start the Docker Compose services.
 
 `./run.sh up` exits after startup (it does not keep a foreground loop). After startup:
@@ -178,6 +180,7 @@ Common lifecycle commands:
 
 - On a `.onion` service, endpoint authenticity primarily comes from the onion address itself (derived from the hidden service key).
 - The self-signed TLS certificate here is an additional transport layer (with strict PQ-hybrid key exchange), not the primary identity anchor.
+- In this repository, the setup CLI aligns cert identity with your hidden service by setting `CN=<your-onion>` and `SAN=DNS:<your-onion>` once the hostname exists.
 - A browser warning is therefore expected unless you manually trust/pin the certificate.
 
 If you want a manual check, print the server cert fingerprint locally:
@@ -252,7 +255,7 @@ The repository includes a release workflow (`.github/workflows/release.yml`) tri
 - Because classical fallback is disabled by design, clients without those PQ groups cannot connect.
 - This setup does not replace endpoint security (host or browser compromise remains critical).
 - Tor adds latency and can affect UX for streaming/model responses.
-- TLS certificate is self-signed by default; client trust prompts are expected and normal for this onion-focused model.
+- TLS certificate is self-signed by default; client trust prompts are expected and normal for this onion-focused model (even when CN/SAN matches your `.onion`).
 
 **Manual Steps (if not using `run.sh`):**
 
@@ -274,7 +277,7 @@ The repository includes a release workflow (`.github/workflows/release.yml`) tri
     EOF
     ```
 
-3.  **Generate ECDSA P-256 self-signed certificates for the PQ Proxy:**
+3.  **Generate bootstrap ECDSA P-256 self-signed certificates for the PQ Proxy:**
     Ensure the `./data/pq_proxy_certs/` directory exists:
     ```bash
     mkdir -p ./data/pq_proxy_certs
@@ -291,11 +294,29 @@ The repository includes a release workflow (`.github/workflows/release.yml`) tri
                -nodes -days 3650 \
                -subj \"/CN=my-boringssl-onion-service\""
     ```
-    This will place `key.pem` and `cert.pem` into `./data/pq_proxy_certs/`.
+    This places a bootstrap `key.pem` and `cert.pem` into `./data/pq_proxy_certs/`.
 
 4.  Start the services:
     ```bash
     docker compose up --build -d
+    ```
+
+5.  Once Tor writes `./data/tor_hs_data/hs/hostname`, rotate cert identity to your actual onion hostname:
+    ```bash
+    ONION_HOSTNAME="$(cat ./data/tor_hs_data/hs/hostname)"
+    docker run --rm \
+      -e ONION_HOSTNAME="$ONION_HOSTNAME" \
+      -v "$(pwd)/data/pq_proxy_certs:/certs" \
+      alpine:3.23.3 \
+      sh -c "apk add --no-cache openssl && \
+             openssl req -x509 \
+               -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+               -keyout /certs/key.pem \
+               -out /certs/cert.pem \
+               -nodes -days 3650 \
+               -subj \"/CN=${ONION_HOSTNAME}\" \
+               -addext \"subjectAltName=DNS:${ONION_HOSTNAME}\""
+    docker compose restart pq-proxy
     ```
 
 (Then follow steps for waiting, getting hostname, and accessing from the automated Quick Start above.)
