@@ -24,7 +24,8 @@ if [ -d "/var/lib/tor" ]; then
     fi
 fi
 
-# Wait for pq-proxy service to be resolvable for HiddenServicePort
+# Wait for pq-proxy DNS entry before launching Tor. Tor validates
+# HiddenServicePort target syntax at startup and fails if hostname is unresolved.
 echo "Waiting for pq-proxy hostname resolution before launching Tor..."
 while ! getent hosts pq-proxy > /dev/null; do
     sleep 1

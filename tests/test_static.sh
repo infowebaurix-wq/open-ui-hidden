@@ -84,4 +84,16 @@ assert_contains \
   'user:[[:space:]]*"\$\{TOR_UID:-1000\}:\$\{TOR_GID:-1000\}"' \
   "tor service must run with host-mapped UID/GID"
 
+echo "[static] checking tor entrypoint waits for pq-proxy DNS"
+assert_contains \
+  "$ROOT_DIR/docker/tor/entrypoint.sh" \
+  'getent[[:space:]]+hosts[[:space:]]+pq-proxy' \
+  "tor entrypoint must wait for pq-proxy DNS before launching tor"
+
+echo "[static] checking webui/tor dependency does not deadlock startup"
+assert_contains \
+  "$ROOT_DIR/docker-compose.yml" \
+  'condition:[[:space:]]*service_started[[:space:]]*# Avoid startup deadlock with tor waiting on pq-proxy DNS' \
+  "webui must depend on tor service_started to avoid tor/pq-proxy startup deadlock"
+
 echo "[static] all checks passed"

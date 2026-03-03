@@ -66,7 +66,7 @@ services:
     user: "${WEBUI_UID:-1000}:${WEBUI_GID:-1000}" # Run as non-root with host-mapped UID/GID
     depends_on:
       tor:
-        condition: service_healthy # Ensure Tor SOCKS proxy is actually ready
+        condition: service_started # Avoid startup deadlock with tor waiting on pq-proxy DNS
       ollama-proxy:
         condition: service_healthy # Ensure the Ollama proxy is reachable
     expose:
