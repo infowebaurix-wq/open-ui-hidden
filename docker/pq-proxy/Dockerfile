@@ -105,12 +105,12 @@ ENV CFLAGS_BASE="-O3 -D_FORTIFY_SOURCE=2 -fstack-protector-strong -Wformat -Werr
     LDFLAGS_BASE="-Wl,-z,relro,-z,now -fno-semantic-interposition"
 
 # Nginx version to build
-ENV NGINX_VERSION=1.28.0
+ENV NGINX_VERSION=1.28.2
 
 # Nginx download URLs
 ENV NGINX_TAR_URL=https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz \
     NGINX_SIG_URL=https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz.asc \
-    NGINX_GPG_KEYS=D6786CE303D9A9022998DC6CC8464D549AF75C0A \
+    NGINX_GPG_KEYS="D6786CE303D9A9022998DC6CC8464D549AF75C0A 43387825DDB1BB97EC36BA5D007C8D7C15D87369" \
     NGINX_BROTLI_GIT_URL=https://github.com/google/ngx_brotli \
     NGINX_BROTLI_COMMIT=a71f9312c2deb28875acc7bacfdd5695a111aa53
 
@@ -138,7 +138,7 @@ RUN GNUPGHOME="$(mktemp -d)" \
 		pgp.mit.edu \
 	; do \
 		echo "Fetching GPG key $NGINX_GPG_KEYS from $server"; \
-		gpg --keyserver "$server" --keyserver-options timeout=10 --recv-keys "$NGINX_GPG_KEYS" && found=yes && break; \
+		gpg --keyserver "$server" --keyserver-options timeout=10 --recv-keys $NGINX_GPG_KEYS && found=yes && break; \
 	done; \
 	test -z "$found" && echo >&2 "error: failed to fetch GPG key $NGINX_GPG_KEYS" && exit 1; \
 	gpg --batch --verify nginx-$NGINX_VERSION.tar.gz.asc nginx-$NGINX_VERSION.tar.gz \
