@@ -1,0 +1,24 @@
+services:
+  # Keep smoke tests focused on networking/TLS/Tor behavior and avoid pulling
+  # the very large Open WebUI runtime image in CI.
+  webui:
+    image: python:3.12-slim
+    build: null
+    entrypoint:
+      - python
+      - -B
+      - -m
+      - http.server
+      - "8080"
+      - --bind
+      - 0.0.0.0
+    command: []
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama-proxy:11434}
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - NO_PROXY=ollama-proxy,127.0.0.1,localhost
+      - PYTHONDONTWRITEBYTECODE=1
+    volumes: []
+    read_only: true
+    tmpfs:
+      - /tmp

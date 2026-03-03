@@ -4,15 +4,20 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+COMPOSE_FILES=(
+  -f docker-compose.yml
+  -f tests/docker-compose.smoke.override.yml
+)
+
 fail() {
   echo "ERROR: $*" >&2
   exit 1
 }
 
 if docker compose version >/dev/null 2>&1; then
-  DOCKER_COMPOSE=(docker compose)
+  DOCKER_COMPOSE=(docker compose "${COMPOSE_FILES[@]}")
 elif command -v docker-compose >/dev/null 2>&1; then
-  DOCKER_COMPOSE=(docker-compose)
+  DOCKER_COMPOSE=(docker-compose "${COMPOSE_FILES[@]}")
 else
   fail "docker compose (or docker-compose) is required"
 fi
@@ -58,8 +63,12 @@ chmod 644 ./data/pq_proxy_certs/cert.pem ./data/pq_proxy_certs/key.pem
 if docker ps --format '{{.Names}}' | grep -qx 'pq-nginx-proxy-kyber768'; then
   echo "[smoke] reusing existing running stack"
 else
+  echo "[smoke] building tor/ollama-proxy/pq-proxy images"
+  "${DOCKER_COMPOSE[@]}" --env-file "$ENV_FILE" build tor ollama-proxy pq-proxy
+  echo "[smoke] pulling lightweight webui image"
+  "${DOCKER_COMPOSE[@]}" --env-file "$ENV_FILE" pull webui
   echo "[smoke] starting docker compose stack"
-  "${DOCKER_COMPOSE[@]}" --env-file "$ENV_FILE" up -d --build
+  "${DOCKER_COMPOSE[@]}" --env-file "$ENV_FILE" up -d --no-build
   STARTED_STACK="true"
 fi
 

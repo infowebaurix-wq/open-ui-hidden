@@ -68,9 +68,16 @@ assert_contains \
 echo "[static] checking compose file parses cleanly"
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
   docker compose -f "$ROOT_DIR/docker-compose.yml" config >/dev/null
+  docker compose -f "$ROOT_DIR/docker-compose.yml" -f "$ROOT_DIR/tests/docker-compose.smoke.override.yml" config >/dev/null
 else
   echo "[static] docker compose not available, skipping compose parse check"
 fi
+
+echo "[static] checking smoke override keeps webui lightweight"
+assert_contains \
+  "$ROOT_DIR/tests/docker-compose.smoke.override.yml" \
+  'image:[[:space:]]*python:3\.12-slim' \
+  "smoke override must use a lightweight webui image"
 
 echo "[static] checking Linux host gateway mapping for ollama-proxy"
 assert_contains \

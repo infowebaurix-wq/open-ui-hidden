@@ -199,7 +199,7 @@ This repository now includes automated checks in GitHub Actions (`.github/workfl
   - `shellcheck` on test scripts and `run.sh`
   - Strict PQ-only TLS config assertions
 - `docker-smoke` job:
-  - Builds/starts the Compose stack
+  - Builds/starts the Compose stack (with a lightweight `webui` override for CI speed)
   - Waits for service healthchecks
   - Runs `nginx -t` inside `pq-proxy`
   - Verifies `ssl_ecdh_curve` is `X25519MLKEM768:X25519Kyber768Draft00` with no `X25519` fallback
