@@ -258,10 +258,10 @@ The repository includes a release workflow (`.github/workflows/release.yml`) tri
     ```bash
     mkdir -p ./data/pq_proxy_certs
     ```
-    Use the `alpine:3.21.3` Docker image and install `openssl` (or use your system's `openssl`) to generate the certs:
+    Use the `alpine:3.23.3` Docker image and install `openssl` (or use your system's `openssl`) to generate the certs:
     ```bash
     docker run --rm -v "$(pwd)/data/pq_proxy_certs:/certs" \
-      alpine:3.21.3 \
+      alpine:3.23.3 \
       sh -c "apk add --no-cache openssl && \
              openssl req -x509 \
                -newkey ec -pkeyopt ec_paramgen_curve:P-256 \

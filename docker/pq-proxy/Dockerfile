@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.4
 # Builder stage for BoringSSL - compiles with hardening flags
-FROM alpine@sha256:de4fe7064d8f98419ea6b49190df1abbf43450c1702eeb864fe9ced453c1cc5f AS boringssl-builder
+FROM alpine@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS boringssl-builder
 # Support multi-arch builds with architecture-specific optimizations
 ARG TARGETARCH
 
@@ -61,10 +61,11 @@ RUN set -eux; \
 			-DCMAKE_C_FLAGS="$CFLAGS_BASE $ARCH_FLAGS" \
 			-DCMAKE_CXX_FLAGS="$CFLAGS_BASE $ARCH_FLAGS" \
 			-DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS_BASE" \
-		&& make -C /usr/src/boringssl/build -j$(getconf _NPROCESSORS_ONLN)
+		# Build only libraries needed by nginx; skip test binaries from `all`.
+		&& make -C /usr/src/boringssl/build -j$(getconf _NPROCESSORS_ONLN) crypto ssl
 
 # Builder stage - compiles Nginx and modules with hardening flags
-FROM alpine@sha256:de4fe7064d8f98419ea6b49190df1abbf43450c1702eeb864fe9ced453c1cc5f AS nginx-builder
+FROM alpine@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS nginx-builder
 # Support multi-arch builds with architecture-specific optimizations
 ARG TARGETARCH
 
@@ -234,7 +235,7 @@ RUN cd /usr/src/nginx-$NGINX_VERSION \
 	&& rm -rf /usr/src/ngx_*
 
 # Runtime stage - minimal image with only what's needed to run Nginx
-FROM alpine@sha256:a8560b36e8b8210634f77d9f7f9efd7ffa463e380b75e2e74aff4511df3ef88c AS runner
+FROM alpine@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS runner
 
 # Install minimal runtime dependencies.
 # libstdc++/libgcc are required by newer BoringSSL static archives linked into nginx.

@@ -163,14 +163,14 @@ generate_certs() {
         echo_yellow "To regenerate certificates, please remove them manually from ${CERT_DIR} and re-run this script."
     else
         echo_yellow "Generating ECDSA P-256 certificates..."
-        if ! docker image inspect alpine:3.21.3 &> /dev/null; then
-            echo_yellow "Pulling alpine:3.21.3 image (used for cert generation utility)..."
-            docker pull alpine:3.21.3
+        if ! docker image inspect alpine:3.23.3 &> /dev/null; then
+            echo_yellow "Pulling alpine:3.23.3 image (used for cert generation utility)..."
+            docker pull alpine:3.23.3
         fi
 
         # Use alpine and install openssl, then generate certs
         docker run --rm -v "$(pwd)/${CERT_DIR#./}:/certs" \
-          alpine@sha256:de4fe7064d8f98419ea6b49190df1abbf43450c1702eeb864fe9ced453c1cc5f \
+          alpine@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 \
           sh -c "apk add --no-cache openssl && \
                  openssl req -x509 \
                    -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
