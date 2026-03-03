@@ -96,4 +96,21 @@ if grep -q ':X25519;' <<<"$CURVE_LINE"; then
   fail "classical X25519 fallback is still present"
 fi
 
+echo "[smoke] probing TLS policy: classical X25519 handshake must fail"
+set +e
+TLS_PROBE_OUTPUT="$("${DOCKER_COMPOSE[@]}" exec -T webui sh -lc \
+  "openssl s_client -connect pq-proxy:443 -servername pq-proxy -tls1_3 -groups X25519 -brief < /dev/null" 2>&1)"
+TLS_PROBE_RC=$?
+set -e
+
+echo "$TLS_PROBE_OUTPUT"
+
+if [[ "$TLS_PROBE_RC" -eq 0 ]]; then
+  fail "classical X25519 handshake unexpectedly succeeded"
+fi
+
+if ! grep -Eiq 'handshake failure|alert handshake failure|no suitable key share' <<<"$TLS_PROBE_OUTPUT"; then
+  fail "unexpected TLS probe failure mode: expected a handshake/key-share rejection"
+fi
+
 echo "[smoke] all checks passed"

@@ -59,6 +59,12 @@ assert_contains \
   'apk add --no-cache[[:space:]]+tor([[:space:]]|$)' \
   "docker/tor/Dockerfile must install tor package"
 
+echo "[static] checking changelog/release metadata"
+assert_contains \
+  "$ROOT_DIR/CHANGELOG.md" \
+  '^## \[Unreleased\]' \
+  "CHANGELOG.md must contain an [Unreleased] section"
+
 echo "[static] checking compose file parses cleanly"
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
   docker compose -f "$ROOT_DIR/docker-compose.yml" config >/dev/null
