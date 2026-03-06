@@ -221,6 +221,8 @@ RUN cd /usr/src/nginx-$NGINX_VERSION \
 
 # Runtime stage - minimal image with only what's needed to run Nginx
 FROM alpine@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS runner
+ARG NGINX_UID=101
+ARG NGINX_GID=101
 
 # Install minimal runtime dependencies.
 # libstdc++/libgcc are required by newer BoringSSL static archives linked into nginx.
@@ -232,8 +234,8 @@ COPY --from=nginx-builder /usr/lib/nginx/modules /usr/lib/nginx/modules
 COPY --from=nginx-builder /etc/nginx/mime.types /etc/nginx/mime.types
 
 # Setup nginx user, directories, and log forwarding for containerized environment
-RUN addgroup -S nginx \
- && adduser -D -S -h /var/cache/nginx -s /sbin/nologin -G nginx nginx \
+RUN addgroup -g "$NGINX_GID" -S nginx \
+ && adduser -D -S -H -u "$NGINX_UID" -h /var/cache/nginx -s /sbin/nologin -G nginx nginx \
  && mkdir -p /var/cache/nginx /etc/nginx/conf.d /var/log/nginx \
  && ln -sf /dev/stdout /var/log/nginx/access.log \
  && ln -sf /dev/stderr /var/log/nginx/error.log \

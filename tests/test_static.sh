@@ -88,8 +88,18 @@ fi
 echo "[static] checking smoke override keeps webui lightweight"
 assert_contains \
   "$ROOT_DIR/tests/docker-compose.smoke.override.yml" \
-  'image:[[:space:]]*python:3\.12-slim' \
+  'image:[[:space:]]*python:3\.12-slim@sha256:' \
   "smoke override must use a lightweight webui image"
+
+echo "[static] checking mutable upstream images are pinned by digest"
+assert_contains \
+  "$ROOT_DIR/docker/webui/Dockerfile" \
+  '^FROM[[:space:]]+ghcr\.io/open-webui/open-webui:0\.8\.8-ollama@sha256:' \
+  "docker/webui/Dockerfile must pin Open WebUI by digest"
+assert_contains \
+  "$ROOT_DIR/docker/ollama-proxy/Dockerfile" \
+  '^FROM[[:space:]]+nginx:1\.28-alpine@sha256:' \
+  "docker/ollama-proxy/Dockerfile must pin nginx by digest"
 
 echo "[static] checking Linux host gateway mapping for ollama-proxy"
 assert_contains \
@@ -102,8 +112,8 @@ assert_contains \
   "ollama-proxy must expose internal port 1234 for OpenAI-compatible host backends"
 assert_contains \
   "$ROOT_DIR/docker-compose.yml" \
-  '/app/backend/open_webui/static:rw,mode=1777' \
-  "webui static tmpfs must be world-writable so runtime assets can be created"
+  '/app/backend/open_webui/static:rw,noexec,nosuid,nodev,uid=\$\{WEBUI_UID:-1000\},gid=\$\{WEBUI_GID:-1000\},mode=0700' \
+  "webui static tmpfs must be isolated and owned by the runtime user"
 assert_contains \
   "$ROOT_DIR/docker-compose.yml" \
   'ollama-proxy:127\.0\.0\.1' \
@@ -118,6 +128,34 @@ assert_contains \
   "$ROOT_DIR/docker-compose.yml" \
   'user:[[:space:]]*"\$\{TOR_UID:-1000\}:\$\{TOR_GID:-1000\}"' \
   "tor service must run with host-mapped UID/GID"
+assert_contains \
+  "$ROOT_DIR/docker-compose.yml" \
+  'tor-hidden-internal' \
+  "compose must define a dedicated hidden-service network for Tor"
+assert_contains \
+  "$ROOT_DIR/docker-compose.yml" \
+  'tor-socks-internal' \
+  "compose must define a dedicated SOCKS network for Tor egress"
+assert_not_contains \
+  "$ROOT_DIR/docker-compose.yml" \
+  '^[[:space:]]*-[[:space:]]*tor-internal$|^[[:space:]]*tor-internal:' \
+  "legacy shared tor-internal network should be removed"
+assert_contains \
+  "$ROOT_DIR/docker-compose.yml" \
+  '/var/cache/nginx:rw,noexec,nosuid,nodev,uid=101,gid=101,mode=0700' \
+  "nginx tmpfs mounts must be hardened and owned by the nginx runtime user"
+assert_contains \
+  "$ROOT_DIR/docker-compose.yml" \
+  '/tmp:rw,noexec,nosuid,nodev,uid=\$\{WEBUI_UID:-1000\},gid=\$\{WEBUI_GID:-1000\},mode=0700' \
+  "webui tmpfs mounts must be hardened and owned by the runtime user"
+assert_contains \
+  "$ROOT_DIR/docker-compose.yml" \
+  'pids_limit:[[:space:]]*\$\{PQ_PROXY_PIDS_LIMIT:-128\}' \
+  "pq-proxy must set a default pids limit"
+assert_contains \
+  "$ROOT_DIR/docker-compose.yml" \
+  'mem_limit:[[:space:]]*"\$\{WEBUI_MEM_LIMIT:-2g\}"' \
+  "webui must set a default memory limit"
 
 echo "[static] checking tor entrypoint waits for pq-proxy DNS"
 assert_contains \

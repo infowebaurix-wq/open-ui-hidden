@@ -1,4 +1,4 @@
-FROM nginx:1.28-alpine
+FROM nginx:1.28-alpine@sha256:15e96e59aa3b0aada3a121296e3bce117721f42d88f5f64217ef4b18f458c6ab
 
 # Remove default Nginx config
 RUN rm /etc/nginx/conf.d/default.conf

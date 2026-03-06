@@ -7,9 +7,12 @@ services:
     container_name: tor-hs-alpine
     user: "${TOR_UID:-1000}:${TOR_GID:-1000}" # Run as non-root with host-mapped UID/GID
     read_only: true # Read-only root filesystem
+    pids_limit: ${TOR_PIDS_LIMIT:-64}
+    mem_limit: "${TOR_MEM_LIMIT:-256m}"
+    cpus: "${TOR_CPUS:-0.50}"
     tmpfs:
-      - /run
-      - /tmp
+      - /run:rw,noexec,nosuid,nodev,uid=${TOR_UID:-1000},gid=${TOR_GID:-1000},mode=0700
+      - /tmp:rw,noexec,nosuid,nodev,uid=${TOR_UID:-1000},gid=${TOR_GID:-1000},mode=0700
     volumes:
       - ./data/tor_hs_data:/var/lib/tor:rw
     restart: unless-stopped
@@ -21,7 +24,8 @@ services:
       start_period: 45s
     networks:
       - tor-public
-      - tor-internal
+      - tor-hidden-internal
+      - tor-socks-internal
     security_opt:
       - "no-new-privileges:true"
     cap_drop:
@@ -34,15 +38,18 @@ services:
     image: ollama-proxy:latest
     container_name: ollama-proxy
     user: nginx # Run as non-root (nginx user from base image)
+    pids_limit: ${OLLAMA_PROXY_PIDS_LIMIT:-128}
+    mem_limit: "${OLLAMA_PROXY_MEM_LIMIT:-128m}"
+    cpus: "${OLLAMA_PROXY_CPUS:-0.50}"
     expose:
       - "11434" # Expose port to webui-internal network
       - "1234" # Expose OpenAI-compatible passthrough (LM Studio)
     read_only: true # Read-only root filesystem
     tmpfs:
-      - /var/cache/nginx:rw,mode=1777  # Nginx cache, world-writable
-      - /var/run:rw,mode=1777          # Nginx PID, world-writable
-      - /var/log/nginx:rw,mode=1777    # Nginx log directory, world-writable
-      - /var/tmp:rw,mode=1777          # General temporary files
+      - /var/cache/nginx:rw,noexec,nosuid,nodev,uid=101,gid=101,mode=0700
+      - /var/run:rw,noexec,nosuid,nodev,uid=101,gid=101,mode=0700
+      - /var/log/nginx:rw,noexec,nosuid,nodev,uid=101,gid=101,mode=0700
+      - /var/tmp:rw,noexec,nosuid,nodev,uid=101,gid=101,mode=0700
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "test -s /var/run/nginx.pid && kill -0 $(cat /var/run/nginx.pid)"]
@@ -67,6 +74,9 @@ services:
       context: ./docker/webui
     container_name: open-webui
     user: "${WEBUI_UID:-1000}:${WEBUI_GID:-1000}" # Run as non-root with host-mapped UID/GID
+    pids_limit: ${WEBUI_PIDS_LIMIT:-512}
+    mem_limit: "${WEBUI_MEM_LIMIT:-2g}"
+    cpus: "${WEBUI_CPUS:-2.00}"
     depends_on:
       tor:
         condition: service_started # Avoid startup deadlock with tor waiting on pq-proxy DNS
@@ -77,11 +87,11 @@ services:
     environment:
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama-proxy:11434} # Use internal DNS by default
       - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY} # Value loaded from .env file by docker-compose
-      - NO_PROXY=ollama-proxy,127.0.0.1,localhost # Keep local traffic out of Tor proxychains path
+      - NO_PROXY=ollama-proxy,ollama-upstream,127.0.0.1,localhost # Keep local traffic out of Tor proxychains path
     read_only: true # Read-only root filesystem
     tmpfs:
-      - /tmp # For any temporary files uvicorn/open-webui might need
-      - /app/backend/open_webui/static:rw,mode=1777 # Writable static dir for runtime asset init
+      - /tmp:rw,noexec,nosuid,nodev,uid=${WEBUI_UID:-1000},gid=${WEBUI_GID:-1000},mode=0700
+      - /app/backend/open_webui/static:rw,noexec,nosuid,nodev,uid=${WEBUI_UID:-1000},gid=${WEBUI_GID:-1000},mode=0700
     volumes:
       - ./data/open_webui_data:/app/backend/data:rw # Writable volume for app data
     restart: unless-stopped
@@ -93,7 +103,7 @@ services:
       start_period: 40s
     networks:
       - webui-internal
-      - tor-internal
+      - tor-socks-internal
     extra_hosts:
       - "ollama-proxy:127.0.0.1" # Force local loopback endpoint inside webui (forwarded to ollama-upstream)
     security_opt:
@@ -108,6 +118,9 @@ services:
     image: pq-nginx-kyber768:latest
     container_name: pq-nginx-proxy-kyber768
     user: nginx # Run as non-root
+    pids_limit: ${PQ_PROXY_PIDS_LIMIT:-128}
+    mem_limit: "${PQ_PROXY_MEM_LIMIT:-256m}"
+    cpus: "${PQ_PROXY_CPUS:-1.00}"
     depends_on:
       webui:
         condition: service_healthy # Start only once WebUI is actually serving
@@ -115,10 +128,10 @@ services:
       - "443" # Expose port only to the internal Docker network (Tor will access it)
     read_only: true # Read-only root filesystem
     tmpfs:
-      - /var/cache/nginx:rw,mode=1777  # Nginx cache, world-writable
-      - /var/run:rw,mode=1777          # Nginx PID, world-writable
-      - /var/log/nginx:rw,mode=1777    # Nginx log directory, world-writable
-      - /var/tmp:rw,mode=1777          # General temporary files
+      - /var/cache/nginx:rw,noexec,nosuid,nodev,uid=101,gid=101,mode=0700
+      - /var/run:rw,noexec,nosuid,nodev,uid=101,gid=101,mode=0700
+      - /var/log/nginx:rw,noexec,nosuid,nodev,uid=101,gid=101,mode=0700
+      - /var/tmp:rw,noexec,nosuid,nodev,uid=101,gid=101,mode=0700
     volumes:
       - ./data/pq_proxy_certs:/etc/nginx/ssl:ro # Read-only certs
     restart: unless-stopped
@@ -129,7 +142,7 @@ services:
       retries: 5
       start_period: 15s
     networks:
-      tor-internal:
+      tor-hidden-internal:
         aliases:
           - pq-proxy # Ensure Tor can always resolve the HiddenServicePort upstream name.
       webui-internal:
@@ -141,7 +154,10 @@ services:
 networks:
   tor-public:
     driver: bridge
-  tor-internal:
+  tor-hidden-internal:
+    driver: bridge
+    internal: true
+  tor-socks-internal:
     driver: bridge
     internal: true
   webui-internal:

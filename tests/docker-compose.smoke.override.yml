@@ -2,7 +2,7 @@ services:
   # Keep smoke tests focused on networking/TLS/Tor behavior and avoid pulling
   # the very large Open WebUI runtime image in CI.
   webui:
-    image: python:3.12-slim
+    image: python:3.12-slim@sha256:ccc7089399c8bb65dd1fb3ed6d55efa538a3f5e7fca3f5988ac3b5b87e593bf0
     build: null
     entrypoint:
       - python
@@ -20,5 +20,3 @@ services:
       - PYTHONDONTWRITEBYTECODE=1
     volumes: []
     read_only: true
-    tmpfs:
-      - /tmp
