@@ -1,11 +1,12 @@
 # Open-WebUI with Tor Hidden Service & Post-Quantum TLS (BoringSSL Edition)
 
-This project runs the Open-WebUI AI interface behind a Tor hidden service, with an additional TLS layer on top of Tor. The proxy is configured in strict PQ-only mode: it offers modern **X25519MLKEM768** first, keeps **X25519Kyber768Draft00** as legacy compatibility, and does not allow classical **X25519** fallback. It uses Docker Compose to manage four containers:
+This project runs the Open-WebUI AI interface behind a Tor hidden service, with an additional TLS layer on top of Tor. The proxy is configured in strict PQ-only mode: it offers modern **X25519MLKEM768** first, keeps **X25519Kyber768Draft00** as legacy compatibility, and does not allow classical **X25519** fallback. It uses Docker Compose to manage five containers:
 
 - **tor-hs**: A minimal Alpine container running Tor, configured to expose the WebUI's PQ proxy via a `.onion` address on port 443 (HTTPS).
 - **pq-proxy**: An Nginx container built from scratch. It acts as a reverse proxy, listening for HTTPS traffic from Tor, terminating TLS with preferred **X25519MLKEM768** and compatibility **X25519Kyber768Draft00** only, then forwarding traffic to the Open-WebUI container.
 - **ollama-proxy**: An internal Nginx proxy that exposes your host Ollama endpoint to Open-WebUI on a private Docker network only.
-- **open-webui**: The upstream Open-WebUI container serving the AI interface internally on port 8080. Wrapped with proxychains4 so that outbound HTTP/TCP traffic (except internal local routes such as Ollama proxy traffic) is routed through Tor's SOCKS proxy.
+- **tor-http-proxy**: A minimal Privoxy sidecar that exposes an internal HTTP proxy and forwards outbound WebUI traffic into Tor's SOCKS proxy.
+- **open-webui**: The upstream Open-WebUI container serving the AI interface internally on port 8080. It uses explicit `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` environment variables pointing to `tor-http-proxy`, while local Ollama traffic stays on Docker-internal DNS (`ollama-proxy`).
 
 All persistent user data (Tor keys, WebUI database/cache) and generated certificates are stored in a local `./data/` directory, organized into subdirectories.
 
@@ -13,15 +14,15 @@ All persistent user data (Tor keys, WebUI database/cache) and generated certific
 
 - You get a self-hosted Open-WebUI reachable over a Tor `.onion` address.
 - TLS is terminated on an internal BoringSSL Nginx proxy in strict PQ-only mode (`X25519MLKEM768`, then `X25519Kyber768Draft00`).
-- WebUI outbound traffic is routed through Tor via proxychains, while local Ollama traffic stays on Docker-internal DNS (`ollama-proxy`).
-- Containers are isolated, non-root where possible, and now include healthchecks for better startup reliability.
+- WebUI outbound traffic is routed through Tor via a dedicated `tor-http-proxy` sidecar, while local Ollama traffic stays on Docker-internal DNS (`ollama-proxy`).
+- Containers are isolated across dedicated internal networks, run non-root where possible, and use hardened `tmpfs`, resource limits, and healthchecks.
 
 ### Threat Model (Practical)
 
 | Goal | Covered? | Notes |
 | :--- | :--- | :--- |
 | Hide service location from direct internet scans | Yes | Exposed only as Tor hidden service. |
-| Reduce metadata leakage for outbound model calls | Yes (partial) | Proxychains routes outbound TCP via Tor; local/internal destinations are exempted. |
+| Reduce metadata leakage for outbound model calls | Yes (partial) | WebUI uses a dedicated HTTP proxy sidecar (`tor-http-proxy`) that forwards outbound traffic into Tor; local/internal destinations are exempted through `NO_PROXY`. |
 | Add an additional PQ-hybrid TLS layer | Yes (experimental) | Enforced with `X25519MLKEM768` then `X25519Kyber768Draft00`; clients without those groups cannot connect. |
 | Defend against host compromise | No | If host is compromised, container isolation is not enough. |
 | Defend against malicious browser endpoint | Partial | TLS/Tor help in transit, but endpoint compromise remains out of scope. |
@@ -35,7 +36,8 @@ flowchart LR
     C -->|"HTTP 8080 internal"| D["open-webui"]
     D -->|"HTTP 11434 internal DNS"| E["ollama-proxy"]
     E -->|"host.docker.internal:11434"| F["Host Ollama"]
-    D -->|"SOCKS5 9050"| B
+    D -->|"HTTP proxy 8118"| G["tor-http-proxy (Privoxy)"]
+    G -->|"SOCKS5 9050"| B
 ```
 
 ### Why Post-Quantum TLS for your Open-WebUI Onion Service?
@@ -82,11 +84,12 @@ This architecture aims to provide a comprehensive solution for individuals seeki
 | **Open-WebUI Access**                       | Access the Open-WebUI AI interface.                                                                                                          |
 | **Tor Hidden Service**                      | Exposes the WebUI via a `.onion` address for direct, secure access without port forwarding.                                                  |
 | **Post-Quantum TLS (Strict PQ-Only)**      | Enforces **X25519MLKEM768** (preferred) and **X25519Kyber768Draft00** (legacy compatibility); no classical fallback.                               |
-| **Dockerized Setup**                        | Manages Tor, Nginx (PQ Proxy), and Open-WebUI in separate Docker containers for isolation and ease of deployment.                            |
-| **Anonymized Outbound Traffic**               | Routes Open-WebUI's outbound HTTP/TCP traffic (e.g., remote LLM API calls) through Tor's SOCKS proxy.                                        |
+| **Dockerized Setup**                        | Manages Tor, the PQ proxy, the Tor HTTP proxy sidecar, Ollama proxy, and Open-WebUI in separate Docker containers for isolation and ease of deployment. |
+| **Anonymized Outbound Traffic**             | Routes Open-WebUI's outbound proxy-aware traffic (e.g. remote LLM API calls) through `tor-http-proxy` into Tor, while keeping local backend calls off that path. |
 | **Data Persistence**                        | Stores Tor keys, WebUI database/cache, and generated certificates locally in a `./data/` directory.                                          |
 | **Automated Setup Script**                  | Includes `run.sh` for easy setup of environment variables, certificate generation, and service startup.                            |
 | **Healthchecked Startup**                   | Uses container healthchecks and `depends_on` healthy conditions to reduce race conditions at boot.                                         |
+| **Runtime Hardening**                       | Uses split internal networks, read-only root filesystems, hardened `tmpfs`, and default PID/CPU/RAM limits to reduce blast radius.         |
 | **Multi-User Support**                      | Leverages Open-WebUI's multi-user account features for shared access.                                                                        |
 | **Self-Hosted Control**                     | Keeps data and AI interactions on your own hardware.                                                                                         |
 | **Enhanced Confidentiality for AI Chats**   | Adds an extra layer of protection for sensitive AI conversations against future quantum decryption.                                            |
@@ -235,6 +238,7 @@ This repository now includes automated checks in GitHub Actions (`.github/workfl
   - Builds/starts the Compose stack (with a lightweight `webui` override for CI speed)
   - Waits for service healthchecks
   - Runs `nginx -t` inside `pq-proxy`
+  - Verifies the dedicated `tor-http-proxy` sidecar and split Tor/internal networks come up correctly
   - Verifies `ssl_ecdh_curve` is `X25519MLKEM768:X25519Kyber768Draft00` with no `X25519` fallback
 
 You can run the same checks locally:
