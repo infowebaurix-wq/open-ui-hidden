@@ -11,15 +11,10 @@ RUN --mount=type=cache,target=/var/cache/apk \
 		ca-certificates \
 		cmake \
 		curl \
-		gcc \
 		git \
 		go \
-		libc-dev \
-		libgcc \
-		libstdc++ \
 		linux-headers \
-		make \
-		perl-dev
+		perl
 
 # Security hardening flags for all compiled binaries
 # - O3: Optimization level 3
@@ -72,32 +67,14 @@ ARG TARGETARCH
 # Install build dependencies with APK cache mount for faster rebuilds
 RUN --mount=type=cache,target=/var/cache/apk \
     apk add --no-cache --virtual .build-deps \
-		autoconf \
-		automake \
-		bind-tools \
-		binutils \
 		build-base \
 		ca-certificates \
+		cmake \
 		curl \
-		gcc \
-		gd-dev \
-		geoip-dev \
 		git \
 		gnupg \
-		libc-dev \
-		libgcc \
-		libstdc++ \
-		libtool \
-		libxslt-dev \
 		linux-headers \
-		make \
-		pcre \
-		pcre-dev \
-		perl-dev \
-		su-exec \
 		tar \
-		tzdata \
-		zlib \
 		zlib-dev
 
 # Security hardening flags for all compiled binaries
@@ -165,7 +142,21 @@ RUN set -eux; \
 	&& git checkout --force --quiet $NGINX_BROTLI_COMMIT \
 	&& git submodule update --init --recursive --depth=1
 
-# Build and install optimized release version of Nginx with security hardening
+# Build Brotli static libraries once so the Nginx filter module can link cleanly.
+RUN set -eux; \
+		if [ "$TARGETARCH" = "arm64" ]; then ARCH_FLAGS="-march=armv8-a -mno-outline-atomics"; else ARCH_FLAGS="-march=x86-64"; fi; \
+		cmake -S /usr/src/ngx_brotli/deps/brotli -B /usr/src/ngx_brotli/deps/brotli/out \
+			-DCMAKE_BUILD_TYPE=Release \
+			-DBUILD_SHARED_LIBS=OFF \
+			-DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+			-DCMAKE_C_FLAGS="$CFLAGS_BASE $ARCH_FLAGS" \
+			-DCMAKE_CXX_FLAGS="$CFLAGS_BASE $ARCH_FLAGS" \
+			-DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS_BASE" \
+			-DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS_BASE" \
+			-DCMAKE_MODULE_LINKER_FLAGS="$LDFLAGS_BASE" \
+		&& cmake --build /usr/src/ngx_brotli/deps/brotli/out --config Release --target brotlienc -j"$(getconf _NPROCESSORS_ONLN)"
+
+# Build and install an intentionally minimal Nginx for reverse proxy duties.
 RUN cd /usr/src/nginx-$NGINX_VERSION \
 		&& patch -p1 < dynamic_tls_records.patch \
 		&& sed -i 's/-lssl -lcrypto/-lssl -lcrypto -lstdc++/g' auto/lib/openssl/conf \
@@ -181,41 +172,38 @@ RUN cd /usr/src/nginx-$NGINX_VERSION \
 		--lock-path=/var/run/nginx.lock \
 		--http-client-body-temp-path=/var/cache/nginx/client_temp \
 		--http-proxy-temp-path=/var/cache/nginx/proxy_temp \
-		--http-fastcgi-temp-path=/var/cache/nginx/fastcgi_temp \
-		--http-uwsgi-temp-path=/var/cache/nginx/uwsgi_temp \
-		--http-scgi-temp-path=/var/cache/nginx/scgi_temp \
 		--user=nginx \
 		--group=nginx \
+		--without-select_module \
+		--without-poll_module \
+		--without-http_charset_module \
+		--without-http_ssi_module \
+		--without-http_userid_module \
+		--without-http_access_module \
+		--without-http_auth_basic_module \
+		--without-http_mirror_module \
+		--without-http_autoindex_module \
+		--without-http_geo_module \
+		--without-http_map_module \
+		--without-http_split_clients_module \
+		--without-http_referer_module \
+		--without-http_rewrite_module \
+		--without-http_fastcgi_module \
+		--without-http_uwsgi_module \
+		--without-http_scgi_module \
+		--without-http_grpc_module \
+		--without-http_memcached_module \
+		--without-http_limit_conn_module \
+		--without-http_limit_req_module \
+		--without-http_empty_gif_module \
+		--without-http_browser_module \
+		--without-http_upstream_hash_module \
+		--without-http_upstream_ip_hash_module \
+		--without-http_upstream_least_conn_module \
+		--without-http_upstream_random_module \
+		--without-http_upstream_zone_module \
 		--with-http_ssl_module \
-		--with-http_realip_module \
-		--with-http_addition_module \
-		--with-http_sub_module \
-		--with-http_dav_module \
-		--with-http_flv_module \
-		--with-http_mp4_module \
-		--with-http_gunzip_module \
-		--with-http_gzip_static_module \
-		--with-http_random_index_module \
-		--with-http_secure_link_module \
-		--with-http_stub_status_module \
-		--with-http_auth_request_module \
-		--with-http_xslt_module=dynamic \
-		--with-http_image_filter_module=dynamic \
-		--with-http_geoip_module=dynamic \
-		--with-http_perl_module=dynamic \
-		--with-threads \
-		--with-stream \
-		--with-stream_ssl_module \
-		--with-stream_ssl_preread_module \
-		--with-stream_realip_module \
-		--with-stream_geoip_module=dynamic \
-		--with-http_slice_module \
-		--with-mail \
-		--with-mail_ssl_module \
-		--with-compat \
-		--with-file-aio \
 		--with-http_v2_module \
-		--with-http_v3_module \
 		--add-dynamic-module=/usr/src/ngx_brotli \
 		" \
 		&& ./configure $CONFIG \
@@ -225,12 +213,9 @@ RUN cd /usr/src/nginx-$NGINX_VERSION \
 	&& make install \
 	&& rm -rf /etc/nginx/html/ \
 	&& mkdir -p /etc/nginx/conf.d/ \
-	&& mkdir -p /usr/share/nginx/html/ \
-	&& install -m644 html/index.html /usr/share/nginx/html/ \
-	&& install -m644 html/50x.html /usr/share/nginx/html/ \
-	&& ln -s ../../usr/lib/nginx/modules /etc/nginx/modules \
 	&& strip /usr/sbin/nginx \
 	&& strip /usr/lib/nginx/modules/*.so \
+	&& rm -f /usr/lib/nginx/modules/ngx_http_brotli_static_module.so \
 	&& rm -rf /usr/src/nginx-$NGINX_VERSION \
 	&& rm -rf /usr/src/ngx_*
 
@@ -239,28 +224,23 @@ FROM alpine@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f
 
 # Install minimal runtime dependencies.
 # libstdc++/libgcc are required by newer BoringSSL static archives linked into nginx.
-RUN apk add --no-cache tzdata ca-certificates pcre brotli libstdc++ libgcc
+RUN apk add --no-cache libstdc++ libgcc
 
 # Copy only the necessary files from the builder stage
 COPY --from=nginx-builder /usr/sbin/nginx /usr/sbin/nginx
-COPY --from=nginx-builder /usr/lib/nginx /usr/lib/nginx
+COPY --from=nginx-builder /usr/lib/nginx/modules /usr/lib/nginx/modules
 COPY --from=nginx-builder /etc/nginx/mime.types /etc/nginx/mime.types
-COPY --from=nginx-builder /etc/nginx/fastcgi_params /etc/nginx/fastcgi_params
-COPY --from=nginx-builder /etc/nginx/fastcgi.conf /etc/nginx/fastcgi.conf
-COPY --from=nginx-builder /etc/nginx/uwsgi_params /etc/nginx/uwsgi_params
-COPY --from=nginx-builder /etc/nginx/scgi_params /etc/nginx/scgi_params
 
 # Setup nginx user, directories, and log forwarding for containerized environment
 RUN addgroup -S nginx \
  && adduser -D -S -h /var/cache/nginx -s /sbin/nologin -G nginx nginx \
- && mkdir -p /var/cache/nginx /etc/nginx/conf.d /usr/share/nginx/html /var/log/nginx \
+ && mkdir -p /var/cache/nginx /etc/nginx/conf.d /var/log/nginx \
  && ln -sf /dev/stdout /var/log/nginx/access.log \
  && ln -sf /dev/stderr /var/log/nginx/error.log \
  && ln -s /usr/lib/nginx/modules /etc/nginx/modules
 
 # Add configuration and static content
 COPY ./nginx.conf /etc/nginx/nginx.conf
-COPY --from=nginx-builder /usr/share/nginx/html /usr/share/nginx/html
 
 # Expose HTTPS port
 EXPOSE 443

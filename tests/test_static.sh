@@ -48,6 +48,18 @@ assert_not_contains \
   "$ROOT_DIR/docker/pq-proxy/nginx.conf" \
   'ssl_ecdh_curve[[:space:]].*:X25519;' \
   "nginx.conf must not allow classical X25519 fallback"
+assert_not_contains \
+  "$ROOT_DIR/docker/pq-proxy/nginx.conf" \
+  'load_module[[:space:]]+modules/ngx_http_brotli_static_module\.so;' \
+  "nginx.conf should not load the unused brotli static module"
+assert_not_contains \
+  "$ROOT_DIR/docker/pq-proxy/nginx.conf" \
+  'brotli_static[[:space:]]+on;' \
+  "nginx.conf should not enable unused brotli_static handling"
+assert_not_contains \
+  "$ROOT_DIR/docker/pq-proxy/nginx.conf" \
+  'pcre_jit[[:space:]]+on;' \
+  "nginx.conf should not enable pcre_jit when regex modules are removed"
 
 echo "[static] checking tor package install is CI-safe"
 assert_not_contains \

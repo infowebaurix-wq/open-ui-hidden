@@ -111,6 +111,82 @@ echo "[smoke] validating compose/service state"
 "${DOCKER_COMPOSE[@]}" ps
 "${DOCKER_COMPOSE[@]}" exec -T pq-proxy nginx -t
 
+echo "[smoke] checking pq-proxy build surface"
+NGINX_BUILD_INFO="$("${DOCKER_COMPOSE[@]}" exec -T pq-proxy nginx -V 2>&1)"
+echo "$NGINX_BUILD_INFO"
+
+for required_flag in \
+  '--with-http_ssl_module' \
+  '--with-http_v2_module' \
+  '--without-select_module' \
+  '--without-poll_module' \
+  '--without-http_charset_module' \
+  '--without-http_ssi_module' \
+  '--without-http_userid_module' \
+  '--without-http_access_module' \
+  '--without-http_auth_basic_module' \
+  '--without-http_mirror_module' \
+  '--without-http_autoindex_module' \
+  '--without-http_geo_module' \
+  '--without-http_map_module' \
+  '--without-http_split_clients_module' \
+  '--without-http_referer_module' \
+  '--without-http_rewrite_module' \
+  '--without-http_fastcgi_module' \
+  '--without-http_uwsgi_module' \
+  '--without-http_scgi_module' \
+  '--without-http_grpc_module' \
+  '--without-http_memcached_module' \
+  '--without-http_limit_conn_module' \
+  '--without-http_limit_req_module' \
+  '--without-http_empty_gif_module' \
+  '--without-http_browser_module' \
+  '--without-http_upstream_hash_module' \
+  '--without-http_upstream_ip_hash_module' \
+  '--without-http_upstream_least_conn_module' \
+  '--without-http_upstream_random_module' \
+  '--without-http_upstream_zone_module' \
+  '--add-dynamic-module=/usr/src/ngx_brotli'
+do
+  if ! grep -q -- "$required_flag" <<<"$NGINX_BUILD_INFO"; then
+    fail "pq-proxy build is missing required nginx flag: $required_flag"
+  fi
+done
+
+for unwanted_flag in \
+  '--with-http_perl_module' \
+  '--with-http_geoip_module' \
+  '--with-http_image_filter_module' \
+  '--with-http_xslt_module' \
+  '--with-http_realip_module' \
+  '--with-http_addition_module' \
+  '--with-http_sub_module' \
+  '--with-http_dav_module' \
+  '--with-http_flv_module' \
+  '--with-http_mp4_module' \
+  '--with-http_gunzip_module' \
+  '--with-http_gzip_static_module' \
+  '--with-http_random_index_module' \
+  '--with-http_secure_link_module' \
+  '--with-http_stub_status_module' \
+  '--with-http_auth_request_module' \
+  '--with-pcre-jit' \
+  '--with-threads' \
+  '--with-stream' \
+  '--with-mail' \
+  '--with-http_v3_module' \
+  '--with-compat' \
+  '--with-file-aio'
+do
+  if grep -q -- "$unwanted_flag" <<<"$NGINX_BUILD_INFO"; then
+    fail "pq-proxy build unexpectedly kept nginx flag: $unwanted_flag"
+  fi
+done
+
+if "${DOCKER_COMPOSE[@]}" exec -T pq-proxy sh -lc 'test -e /usr/lib/nginx/modules/ngx_http_brotli_static_module.so'; then
+  fail "unused ngx_http_brotli_static_module.so is still shipped in pq-proxy runtime image"
+fi
+
 CURVE_LINE="$("${DOCKER_COMPOSE[@]}" exec -T pq-proxy sh -lc "grep -n 'ssl_ecdh_curve' /etc/nginx/nginx.conf")"
 echo "$CURVE_LINE"
 
