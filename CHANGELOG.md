@@ -13,6 +13,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   `X25519` handshake is rejected.
 - GitHub release workflow on tags (`v*`) that publishes notes extracted from
   `CHANGELOG.md`.
+- Maintenance helper script and Makefile targets to check or refresh pinned
+  upstream image digests in place.
 
 ### Changed
 
@@ -31,4 +33,3 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Static and Docker smoke tests via GitHub Actions.
 - Security hardening defaults (non-root users, read-only rootfs, tmpfs,
   healthchecks, capability drops).
-

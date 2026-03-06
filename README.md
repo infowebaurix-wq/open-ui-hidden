@@ -248,6 +248,17 @@ make test-static
 make test-docker-smoke
 ```
 
+To refresh pinned upstream image digests when you intentionally keep the same tags:
+
+```bash
+make check-digests
+make update-digests
+```
+
+`check-digests` compares the pinned digests in the repo with the current remote
+manifest digests for the tracked tags. `update-digests` rewrites those digests
+in place.
+
 ### Release Process
 
 The repository includes a release workflow (`.github/workflows/release.yml`) triggered on tags matching `v*`.

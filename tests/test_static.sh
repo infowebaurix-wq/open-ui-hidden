@@ -28,12 +28,17 @@ assert_not_contains() {
 
 echo "[static] checking bash syntax"
 bash -n "$ROOT_DIR/run.sh"
+bash -n "$ROOT_DIR/scripts/update-image-digests.sh"
 bash -n "$ROOT_DIR/tests/test_static.sh"
 bash -n "$ROOT_DIR/tests/test_compose_smoke.sh"
 
 if command -v shellcheck >/dev/null 2>&1; then
   echo "[static] running shellcheck"
-  shellcheck "$ROOT_DIR/run.sh" "$ROOT_DIR/tests/test_static.sh" "$ROOT_DIR/tests/test_compose_smoke.sh"
+  shellcheck \
+    "$ROOT_DIR/run.sh" \
+    "$ROOT_DIR/scripts/update-image-digests.sh" \
+    "$ROOT_DIR/tests/test_static.sh" \
+    "$ROOT_DIR/tests/test_compose_smoke.sh"
 else
   echo "[static] shellcheck not found, skipping"
 fi
@@ -112,6 +117,18 @@ assert_contains \
   "$ROOT_DIR/docker/ollama-proxy/Dockerfile" \
   '^FROM[[:space:]]+nginx:1\.28-alpine@sha256:' \
   "docker/ollama-proxy/Dockerfile must pin nginx by digest"
+assert_contains \
+  "$ROOT_DIR/scripts/update-image-digests.sh" \
+  'ghcr\.io/open-webui/open-webui:0\.8\.8-ollama' \
+  "update-image-digests.sh must track the pinned Open WebUI image"
+assert_contains \
+  "$ROOT_DIR/scripts/update-image-digests.sh" \
+  'nginx:1\.28-alpine' \
+  "update-image-digests.sh must track the pinned nginx image"
+assert_contains \
+  "$ROOT_DIR/scripts/update-image-digests.sh" \
+  'python:3\.12-slim' \
+  "update-image-digests.sh must track the pinned smoke-test image"
 
 echo "[static] checking Linux host gateway mapping for ollama-proxy"
 assert_contains \
